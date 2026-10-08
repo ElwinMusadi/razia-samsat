@@ -14,7 +14,14 @@
     "types": "wrangler types",
     "db:migrate:local": "wrangler d1 migrations apply DB --local",
     "bootstrap:user": "node scripts/create-user.ts",
-    "bootstrap:location": "node scripts/create-location.ts"
+    "bootstrap:location": "node scripts/create-location.ts",
+    "production:prepare": "node scripts/production.ts prepare",
+    "production:check": "node scripts/production.ts check",
+    "production:dryrun": "node scripts/production.ts dryrun",
+    "production:verify": "node scripts/production.ts verify",
+    "production:migrate": "node scripts/production.ts migrate",
+    "production:deploy": "node scripts/production.ts deploy",
+    "production:bootstrap": "node scripts/production.ts bootstrap"
   },
   "dependencies": {
     "@radix-ui/react-slot": "^1.3.3",

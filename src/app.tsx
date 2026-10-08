@@ -6,6 +6,7 @@ import { api, ApiError, errorText, formatWita, isAbort, normalizeLane, type Loca
 import { Scanner } from './scanner';
 import { HistoryDetailRoute, HistoryListRoute } from './history';
 import { AdminUsersRoute, AdminUserRoute } from './admin';
+import { PwaControls } from './pwa';
 
 function ErrorMessage({ children, id = 'operation-error' }: { children: ReactNode; id?: string }) {
   const ref = useRef<HTMLParagraphElement>(null);
@@ -205,7 +206,7 @@ export function App() {
       : path === '/history' ? 'Riwayat — Razia SAMSAT' : path.startsWith('/history/') ? 'Detail sesi — Razia SAMSAT'
       : path === '/admin/users' ? 'Kelola pengguna — Razia SAMSAT' : path.startsWith('/admin/users/') ? 'Detail pengguna — Razia SAMSAT' : 'Sesi razia — Razia SAMSAT';
   }, [location.pathname]);
-  return <Routes>
+  return <><PwaControls /><Routes>
     <Route path="/login" element={<Login />} />
     <Route path="/razia/setup" element={<Protected><Shell><RaidSetup /></Shell></Protected>} />
     <Route path="/razia/scanner" element={<Protected><Shell><Scanner /></Shell></Protected>} />
@@ -214,5 +215,5 @@ export function App() {
     <Route path="/admin/users" element={<Protected><Shell><AdminUsersRoute /></Shell></Protected>} />
     <Route path="/admin/users/:id" element={<Protected><Shell><AdminUserRoute /></Shell></Protected>} />
     <Route path="*" element={<Protected><Home /></Protected>} />
-  </Routes>;
+  </Routes></>;
 }

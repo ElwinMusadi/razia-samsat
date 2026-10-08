@@ -5,3 +5,5 @@ dist/
 .dev.vars*
 coverage/
 *.tsbuildinfo
+wrangler.production.jsonc
+backups/

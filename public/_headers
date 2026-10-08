@@ -5,3 +5,26 @@
   Permissions-Policy: camera=(), microphone=(), geolocation=()
   Strict-Transport-Security: max-age=31536000; includeSubDomains
   Content-Security-Policy: default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self'; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'; object-src 'none'
+
+/sw.js
+  Cache-Control: no-store
+  Content-Type: text/javascript; charset=utf-8
+
+/manifest.webmanifest
+  Cache-Control: no-cache
+  Content-Type: application/manifest+json
+
+/offline
+  Cache-Control: no-cache
+  Content-Type: text/html; charset=utf-8
+
+/offline.html
+  Cache-Control: no-cache
+
+/offline.css
+  Cache-Control: no-cache
+  Content-Type: text/css; charset=utf-8
+
+/icons/*
+  Cache-Control: no-cache
+  Content-Type: image/png
