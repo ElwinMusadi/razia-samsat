@@ -4,14 +4,12 @@ import { useAuth } from './auth';
 import { Button } from './components/ui/button';
 import { useLatestRequest } from './history';
 import { api, ApiError, formatWita, isAcceptablePassword, isAbort, normalizeUsername, type AdminUser, type AdminSession } from './lib/api';
+import { PasswordInput } from './components/ui/input';
+import { PageHeader } from './components/ui/layout';
 
-const CONTROL = 'min-w-11 whitespace-normal break-words';
+const CONTROL = 'min-w-12 whitespace-normal break-words';
 const POLICY_NOTE = 'Riwayat tidak dihapus. Tindakan ini tidak menutup sesi razia secara otomatis.';
-function Title({ children }: { children: ReactNode }) {
-  const ref = useRef<HTMLHeadingElement>(null);
-  useEffect(() => { ref.current?.focus(); }, []);
-  return <h1 ref={ref} tabIndex={-1} className="break-words text-2xl font-semibold">{children}</h1>;
-}
+function Title({ children }: { children: ReactNode }) { return <PageHeader title={children} operational />; }
 function Failure({ error, retry, busy = false }: { error: ApiError; retry?: () => void; busy?: boolean }) {
   const ref = useRef<HTMLDivElement>(null);
   useEffect(() => { ref.current?.focus(); }, [error]);
@@ -19,7 +17,6 @@ function Failure({ error, retry, busy = false }: { error: ApiError; retry?: () =
     {error.status === 403 && <p className="font-semibold">Akses ditolak (403)</p>}
     {error.status === 404 && <p className="font-semibold">Pengguna atau sesi tidak ditemukan</p>}
     <p>{error.message}</p>
-    {error.requestId && <p className="break-all text-sm">ID permintaan: {error.requestId}</p>}
     {retry && error.status !== 403 && error.status !== 404 && <Button variant="outline" className={CONTROL} disabled={busy} onClick={retry}>Coba lagi</Button>}
   </div>;
 }
@@ -97,7 +94,7 @@ function PasswordField({ inputRef, label, disabled, invalid }: { inputRef: RefOb
     const input = inputRef.current;
     return () => { if (input) input.value = ''; };
   }, [inputRef]);
-  return <><label className="field" data-invalid={invalid}>{label}<input ref={inputRef} name="password" type="password" autoComplete="new-password" disabled={disabled} aria-invalid={invalid} aria-describedby="password-help" /></label><PasswordHelp /></>;
+  return <><div className="field" data-invalid={invalid}><label htmlFor="admin-password">{label}</label><PasswordInput id="admin-password" inputRef={inputRef} name="password" autoComplete="new-password" disabled={disabled} aria-invalid={invalid} aria-describedby="password-help" /></div><PasswordHelp /></>;
 }
 function AdminUsers() {
   const { busy } = useAuth();
@@ -299,14 +296,14 @@ function AdminDetail({ id }: { id: string }) {
         {cursor && !moreFailure && <Button variant="outline" className={CONTROL} disabled={disabled} onClick={more}>{phase === 'more' ? 'Memuat…' : 'Muat lebih banyak sesi'}</Button>}
         <Button variant="outline" className={CONTROL} disabled={disabled || user.active_session_count === 0} onClick={() => choose('all')}>Cabut semua sesi</Button>
       </section>
-      {confirmation && <section aria-labelledby="confirm-title" className="panel flex min-w-0 flex-col gap-3">
+      {confirmation && <section aria-labelledby="confirm-title" className="panel confirmation flex min-w-0 flex-col gap-3">
         <h2 id="confirm-title" className="text-xl font-semibold">Konfirmasi tindakan</h2>
         <p>{confirmation === 'activate' ? `Aktifkan akun ${user.username}?` : confirmation === 'deactivate' ? `Nonaktifkan akun ${user.username} dan cabut sesinya?` : confirmation === 'password' ? `Reset kata sandi ${user.username} dan cabut SEMUA sesinya?` : confirmation === 'all' ? `Cabut SEMUA sesi ${user.username}?` : `Cabut sesi yang dipilih untuk ${user.username}?`}</p>
         {(self && (confirmation === 'password' || confirmation === 'all' || (typeof confirmation === 'object' && confirmation.session.is_current))) && <p className="font-semibold">Perangkat ini akan keluar. Anda harus masuk kembali.</p>}
         <p className="text-sm">{POLICY_NOTE}</p>
         <form onSubmit={event => { void execute(event); }} className="flex min-w-0 flex-col gap-3" noValidate>
           {confirmation === 'password' && <PasswordField inputRef={password} label="Kata sandi baru" disabled={disabled} invalid={!!operationError} />}
-          <div className="flex flex-wrap gap-2"><Button type="submit" className={CONTROL} disabled={disabled}>{busy ? 'Memproses…' : 'Ya, lanjutkan'}</Button><Button type="button" variant="outline" className={CONTROL} disabled={busy} onClick={() => choose(null)}>Batal</Button></div>
+          <div className="flex flex-wrap gap-2"><Button type="submit" variant={confirmation === 'activate' ? 'default' : 'destructive'} className={CONTROL} disabled={disabled}>{busy ? 'Memproses…' : 'Ya, lanjutkan'}</Button><Button type="button" variant="outline" className={CONTROL} disabled={busy} onClick={() => choose(null)}>Batal</Button></div>
         </form>
       </section>}
     </>}

@@ -7,7 +7,7 @@ import { experimental_readRawConfig } from 'wrangler';
 import { hashPassword, verifyPassword } from '../shared/password';
 import { PROJECT_ROOT } from '../scripts/lib';
 import { confirmTarget, EXPECTED_ACCOUNT, EXPECTED_DATABASE, EXPECTED_NAMESPACE, EXPECTED_WORKER, PRODUCTION_CONFIG, validateProductionConfig, verifyInventory } from '../scripts/production-config';
-import { bootstrapAdmin, buildBootstrapSql, EMPTY_USERS_SQL, executeRemoteSql, runProduction, verifyDomain, verifyWorker, type CliResult, type OperationDependencies, type SqlRunner } from '../scripts/production';
+import { bootstrapAdmin, buildBootstrapSql, buildProductionAssets, EMPTY_USERS_SQL, executeRemoteSql, runProduction, verifyDomain, verifyWorker, type CliResult, type OperationDependencies, type SqlRunner } from '../scripts/production';
 import { resetTestD1, startMigratedD1, type TestD1 } from './helpers/miniflare';
 
 // Synthetic identifiers and hostnames are test-only, never operator inventory.
@@ -70,6 +70,12 @@ describe('production strict local configuration', () => {
     const asset=config(); asset.assets.run_worker_first=['/*']; expect(() => validateProductionConfig(asset)).toThrow();
     const binding=config(); binding.assets.binding='OTHER'; expect(() => validateProductionConfig(binding)).toThrow();
   });
+  it('rejects development entry, marker and sentinel bindings in production config', () => {
+    expect(() => validateProductionConfig({...config(),main:'worker/dev-index.ts'})).toThrow();
+    expect(() => validateProductionConfig({...config(),vars:{...config().vars,APP_ENV:'development'}})).toThrow();
+    const db=config(); db.d1_databases[0].database_id='00000000-0000-0000-0000-000000000001'; expect(() => validateProductionConfig(db)).toThrow();
+    const kv=config(); kv.kv_namespaces[0].id='00000000000000000000000000000001'; Object.assign(kv.kv_namespaces[0],{remote:false}); expect(() => validateProductionConfig(kv)).toThrow();
+  });
   it('requires all exact confirmations', () => {
     for (const key of flags().keys()) { const value=flags(); value.delete(key); expect(() => confirmTarget(target,value)).toThrow(); const wrong=flags(); wrong.set(key,'other'); expect(() => confirmTarget(target,wrong)).toThrow(); }
   });
@@ -89,18 +95,65 @@ describe('production strict local configuration', () => {
   });
 });
 
+describe('deterministic production asset build', () => {
+  it('uses installed typecheck and Vite commands with production mode overriding inherited/dotenv markers', async () => {
+    const environment={...process.env,VITE_APP_MODE:'development',NODE_ENV:'development',SYNTHETIC_PARENT:'kept'};
+    const original={...environment};
+    const commands:string[][]=[];
+    await buildProductionAssets((command,args,options)=>{
+      expect(command).toBe(process.execPath); expect(options.cwd).toBe(PROJECT_ROOT); expect(options.shell).toBe(false);
+      expect(options.stdio).toEqual(['ignore','pipe','pipe']);
+      expect(options.env).toEqual({...environment,VITE_APP_MODE:'production',NODE_ENV:'production'});
+      commands.push(args); return {status:0};
+    },environment);
+    const tsc=join(PROJECT_ROOT,'node_modules','typescript','bin','tsc');
+    expect(commands).toEqual([[tsc,'-p','tsconfig.app.json'],[tsc,'-p','tsconfig.worker.json'],[tsc,'-p','tsconfig.tools.json'],[join(PROJECT_ROOT,'node_modules','vite','bin','vite.js'),'build','--mode','production','--emptyOutDir']]);
+    expect(environment).toEqual(original);
+  });
+  it.each([0,1,2,3])('stops immediately on failed build stage %s without relaying diagnostics', async failure => {
+    let calls=0;
+    await expect(buildProductionAssets(()=>({status:calls++ === failure ? 1 : 0}))).rejects.toThrow('detail sensitif disembunyikan');
+    expect(calls).toBe(failure+1);
+  });
+  it('suppresses thrown child-process diagnostics', async () => {
+    await expect(buildProductionAssets(()=>{throw new Error('Synthetic secret subprocess diagnostic');})).rejects.toThrow('Build aset production gagal; detail sensitif disembunyikan dan Wrangler tidak dijalankan.');
+  });
+});
+
 describe('operator command boundaries with injected CLI, not remote success claims', () => {
   function dependencies() {
-    const calls: string[][]=[]; const inv=inventory();
-    const deps:OperationDependencies={ load:()=>target, run:async args=>{calls.push(args); if(args[0]==='whoami') return result(inv.whoami); if(args[0]==='d1' && args[1]==='list') return result(inv.databases); if(args[0]==='kv') return result(inv.namespaces); if(args[0]==='deployments') return result([deployment()]); return result([]);},password:async()=>{throw new Error('not expected');},domain:async()=>{},sql:async()=>{throw new Error('not expected');},notice:()=>{} };
-    return {deps,calls};
+    const calls: string[][]=[]; const inv=inventory(); const events:string[]=[];
+    const deps:OperationDependencies={ build:async()=>{events.push('build');}, load:()=>target, run:async args=>{calls.push(args); events.push(args.join(' ')); if(args[0]==='whoami') return result(inv.whoami); if(args[0]==='d1' && args[1]==='list') return result(inv.databases); if(args[0]==='kv') return result(inv.namespaces); if(args[0]==='deployments') return result([deployment()]); return result([]);},password:async()=>{throw new Error('not expected');},domain:async()=>{},sql:async()=>{throw new Error('not expected');},notice:()=>{} };
+    return {deps,calls,events};
   }
-  it('check and dryrun never inventory or remote write', async () => {
-    const {deps,calls}=dependencies(); await runProduction(['check'],deps); expect(calls).toEqual([]); await runProduction(['dryrun'],deps); expect(calls).toEqual([['deploy','--dry-run','--autoconfig=false']]);
+  it('rejects the reserved UAT password before any production SQL', async () => {
+    const {deps}=dependencies(); deps.password=async()=> 'password';
+    let writes=0; deps.sql=async()=>{writes++; return [];};
+    await expect(runProduction(['bootstrap',...argvFlags(),'--username','synthetic.operator'],deps)).rejects.toThrow('Password development');
+    expect(writes).toBe(0);
+  });
+  it('check never builds and dryrun rebuilds before bundling without remote inventory/write', async () => {
+    const {deps,calls,events}=dependencies(); await runProduction(['check'],deps); expect(calls).toEqual([]); expect(events).toEqual([]);
+    await runProduction(['dryrun'],deps); expect(calls).toEqual([['deploy','--dry-run','--autoconfig=false']]);
+    expect(events).toEqual(['build','deploy --dry-run --autoconfig=false']);
+  });
+  it('deploy builds before any remote inventory, domain verification or mutation', async () => {
+    const {deps,events}=dependencies(); deps.domain=async()=>{events.push('domain');};
+    await runProduction(['deploy',...argvFlags(),'--confirm-deployment',DEPLOYMENT_ID,'--confirm-version',VERSION_ID],deps);
+    expect(events).toEqual(['build','whoami --json','d1 list --json','kv namespace list',`deployments list --name ${EXPECTED_WORKER} --json`,'domain','deploy --strict --autoconfig=false']);
+  });
+  it.each(['deploy','dryrun'])('failed %s build blocks all Wrangler and other side effects with a generic error', async mode => {
+    const {deps,calls}=dependencies(); let domain=0,password=0,sql=0;
+    deps.build=async()=>{throw new Error('Synthetic secret build diagnostic');};
+    deps.domain=async()=>{domain++;}; deps.password=async()=>{password++; return 'Synthetic-password';}; deps.sql=async()=>{sql++; return [];};
+    const args=mode === 'deploy' ? [mode,...argvFlags()] : [mode];
+    await expect(runProduction(args,deps)).rejects.toThrow('detail sensitif disembunyikan');
+    expect(calls).toEqual([]); expect({domain,password,sql}).toEqual({domain:0,password:0,sql:0});
   });
   it('invalid config and missing confirmations refuse before any CLI', async () => {
-    const {deps,calls}=dependencies(); deps.load=()=>validateProductionConfig({...config(),name:'wrong'}); await expect(runProduction(['deploy',...argvFlags()],deps)).rejects.toThrow(); expect(calls).toEqual([]);
+    const {deps,calls,events}=dependencies(); deps.load=()=>validateProductionConfig({...config(),name:'wrong'}); await expect(runProduction(['deploy',...argvFlags()],deps)).rejects.toThrow(); expect(calls).toEqual([]); expect(events).toEqual([]);
     const normal=dependencies(); await expect(runProduction(['migrate'],normal.deps)).rejects.toThrow(); expect(normal.calls).toEqual([]);
+    const deploy=dependencies(); await expect(runProduction(['deploy'],deploy.deps)).rejects.toThrow(); expect(deploy.calls).toEqual([]); expect(deploy.events).toEqual([]);
   });
   it('inventory mismatch fails before any network write', async () => {
     const {deps,calls}=dependencies(); const run=deps.run; deps.run=async args=>args[0]==='kv' ? result([]) : run(args);

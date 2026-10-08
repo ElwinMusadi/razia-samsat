@@ -1,20 +1,49 @@
-// Same-origin local development: `vite build --watch` writes ./dist and `wrangler dev` serves the SPA
-// (Static Assets) and /api from one origin, so cookies/CSRF behave as in production. No dev proxy/CORS.
-import { spawn, type ChildProcess } from 'node:child_process';
+// Same-origin local UAT. Initial build must finish before the server can serve any assets.
+import { spawn, spawnSync, type ChildProcess } from 'node:child_process';
 import { join } from 'node:path';
+import { DEVELOPMENT_CONFIG, DEVELOPMENT_PERSIST, DevelopmentError, prepareDevelopment } from './development.ts';
 import { PROJECT_ROOT } from './lib.ts';
 
-// Miniflare rejects a compatibility date later than the host UTC date. While the host UTC date is still
-// before the approved target, override it on the CLI only; wrangler.jsonc stays unchanged.
-const hostDate = new Date().toISOString().slice(0, 10);
-const compatibilityArgs = hostDate < '2026-10-07' ? ['--compatibility-date', hostDate] : [];
+const children = new Set<ChildProcess>();
+const env = { ...process.env, VITE_APP_MODE: 'development', WRANGLER_SEND_METRICS: 'false' };
 const bin = (pkg: string, file: string) => join(PROJECT_ROOT, 'node_modules', pkg, 'bin', file);
-const children: ChildProcess[] = [];
-const run = (args: string[]) => {
-  const child = spawn(process.execPath, args, { cwd: PROJECT_ROOT, stdio: 'inherit', shell: false });
-  child.on('exit', code => { for (const other of children) if (other !== child) other.kill(); process.exitCode = code ?? 1; });
-  children.push(child);
-};
-run([bin('vite', 'vite.js'), 'build', '--watch']);
-run([bin('wrangler', 'wrangler.js'), 'dev', '--local', ...compatibilityArgs]);
-for (const signal of ['SIGINT', 'SIGTERM'] as const) process.on(signal, () => { for (const child of children) child.kill(); });
+let stopping = false;
+function stop(): void {
+  if (stopping) return;
+  stopping = true;
+  for (const child of children) {
+    // Windows SIGTERM does not recursively terminate descendants. Kill only this owned tree.
+    if (process.platform === 'win32' && child.pid) spawnSync('taskkill', ['/PID', String(child.pid), '/T', '/F'], { stdio: 'ignore', shell: false });
+    else child.kill();
+  }
+}
+function run(args: string[], persistent = false): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const child = spawn(process.execPath, args, { cwd: PROJECT_ROOT, stdio: 'inherit', shell: false, env });
+    children.add(child);
+    child.once('error', () => { children.delete(child); stop(); reject(new DevelopmentError('Proses development gagal dimulai.')); });
+    child.once('exit', (code, signal) => {
+      children.delete(child);
+      if (stopping && signal) resolve();
+      else if (code === 0 && !persistent) resolve();
+      else { stop(); reject(new DevelopmentError('Proses development berhenti; seluruh proses anak dihentikan.')); }
+    });
+  });
+}
+for (const signal of ['SIGINT', 'SIGTERM'] as const) process.on(signal, stop);
+try {
+  if (process.argv.length !== 2) throw new DevelopmentError('npm run dev tidak menerima konfigurasi atau target tambahan.');
+  await prepareDevelopment();
+  if (!stopping) await run([bin('vite', 'vite.js'), 'build']);
+  if (!stopping) {
+    process.stdout.write('UAT lokal dengan data simulasi: http://127.0.0.1:8787\n');
+    await Promise.all([
+      run([bin('vite', 'vite.js'), 'build', '--watch'], true),
+      run([bin('wrangler', 'wrangler.js'), 'dev', '--local', '--config', DEVELOPMENT_CONFIG, '--persist-to', DEVELOPMENT_PERSIST, '--ip', '127.0.0.1', '--port', '8787'], true),
+    ]);
+  }
+} catch (error) {
+  stop();
+  process.stderr.write(`${error instanceof DevelopmentError ? error.message : 'Development lokal gagal.'}\n`);
+  process.exitCode = 1;
+}

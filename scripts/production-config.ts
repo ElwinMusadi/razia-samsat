@@ -22,7 +22,7 @@ function single(value: unknown): Record<string, unknown> {
   return object(value[0]);
 }
 export function validId(value: unknown, uuid = false): value is string {
-  return typeof value === 'string' && (uuid ? /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/ : /^[0-9a-f]{32}$/).test(value) && !/^0[-0]*$/.test(value);
+  return typeof value === 'string' && (uuid ? /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/ : /^[0-9a-f]{32}$/).test(value) && !/^0[-0]*$/.test(value) && value !== '00000000000000000000000000000001';
 }
 export type ProductionTarget = { account: string; worker: string; database: string; namespace: string; hostname: string; origin: string; zone: string };
 

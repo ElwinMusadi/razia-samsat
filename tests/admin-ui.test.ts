@@ -62,15 +62,25 @@ describe('admin list, guards and navigation', () => {
   });
   it.each(['/admin/users', detail])('OFFICER direct URL %s shows403 without metadata fetch or logout', async path => {
     routes(undefined, auth('OFFICER')); mount(path); await screen.findByRole('heading', { name: 'Akses ditolak (403)' });
-    expect(adminCalls()).toHaveLength(0); expect(screen.queryByRole('link', { name: 'Kelola pengguna' })).toBeNull();
+    expect(adminCalls()).toHaveLength(0); expect(screen.queryByRole('link', { name: 'Admin' })).toBeNull();
+    expect([...screen.getByRole('navigation').firstElementChild!.children].map(node => node.textContent)).toEqual(['Scanner', 'Sesi', 'Riwayat']);
     expect(screen.getByTestId('path').textContent).toBe(path); expect(screen.getByRole('button', { name: 'Keluar' })).toBeTruthy();
   });
-  it('keeps ADMIN link in header and unchanged bottomnav safearea/44px declaration', async () => {
+  it('uses four ADMIN destinations and places logout only in the account header', async () => {
     routes(); mount(); await screen.findByRole('list', { name: 'Daftar pengguna' });
-    const link = screen.getByRole('link', { name: 'Kelola pengguna' }); expect(link.closest('header')).not.toBeNull();
-    expect(link.className).toContain('min-h-11'); expect(link.className).toContain('min-w-11'); expect(link.getAttribute('aria-current')).toBe('page');
-    const nav = screen.getByRole('navigation'); expect([...nav.firstElementChild!.children].map(node => node.textContent)).toEqual(['Sesi razia', 'Riwayat', 'Keluar']);
-    expect(nav.className).toContain('safe-area-inset-bottom'); expect(nav.firstElementChild!.className).not.toContain('flex-wrap');
+    const link = screen.getByRole('link', { name: 'Admin' }); expect(link.closest('header')).toBeNull();
+    expect(link.classList.contains('nav-link')).toBe(true); expect(link.getAttribute('aria-current')).toBe('page');
+    const nav = screen.getByRole('navigation'); expect([...nav.firstElementChild!.children].map(node => node.textContent)).toEqual(['Scanner', 'Sesi', 'Riwayat', 'Admin']);
+    for (const control of [...nav.firstElementChild!.children]) {
+      expect(control.classList.contains('nav-link')).toBe(true);
+      expect(control.getAttribute('aria-current')).toBe(control.textContent === 'Admin' ? 'page' : null);
+      expect(control.classList.contains('active')).toBe(control.textContent === 'Admin');
+    }
+    expect(nav.querySelectorAll('[aria-current="page"]')).toHaveLength(1);
+    expect(nav.className).toContain('bottom-navigation'); expect(nav.firstElementChild!.className).not.toContain('flex-wrap');
+    expect(within(nav).queryByRole('button', { name: 'Keluar' })).toBeNull();
+    expect(screen.getAllByRole('button', { name: 'Keluar' })).toHaveLength(1);
+    expect(screen.getByRole('button', { name: 'Keluar' }).closest('header')).not.toBeNull();
     expect(screen.getByRole('heading', { name: 'Kelola pengguna' }).parentElement!.className).toContain('min-w-0');
   });
   it('shows list loading/empty and no invented data', async () => {
@@ -95,7 +105,7 @@ describe('admin list, guards and navigation', () => {
     expect(adminCalls().filter(([path]) => path === `${BASE}?limit=20&cursor=${cursor}`)).toHaveLength(2);
   });
   it.each([403, 404])('read%i hides metadata and preserves authentication/request ID', async status => {
-    routes(() => failure(status)); mount(); const alert = await screen.findByRole('alert'); expect(alert.textContent).toContain('req-admin-ui');
+    routes(() => failure(status)); mount(); const alert = await screen.findByRole('alert'); expect(alert.textContent).not.toContain('req-admin-ui'); expect(alert.textContent).not.toContain('ID permintaan'); expect(alert.textContent?.trim().length).toBeGreaterThan(0);
     expect(screen.queryByRole('list', { name: 'Daftar pengguna' })).toBeNull(); expect(screen.queryByText('Tambah pengguna')).toBeNull();
     expect(screen.getByTestId('path').textContent).toBe('/admin/users'); expect(fetchMock.mock.calls.some(([path]) => path === '/api/auth/logout')).toBe(false);
   });
@@ -105,7 +115,7 @@ describe('admin list, guards and navigation', () => {
   });
   it('invalid response is generic with request ID and explicit read retry', async () => {
     let calls = 0; routes(() => ++calls === 1 ? json({ password_hash: 'PRIVATE_HASH' }) : json({ users: [], next_cursor: null })); mount();
-    const alert = await screen.findByRole('alert'); expect(alert.textContent).toContain('Respons layanan tidak valid'); expect(alert.textContent).toContain('req-admin-ui'); expect(document.body.innerHTML).not.toContain('PRIVATE');
+    const alert = await screen.findByRole('alert'); expect(alert.textContent).toContain('Respons layanan tidak valid'); expect(alert.textContent).not.toContain('req-admin-ui'); expect(alert.textContent).not.toContain('ID permintaan'); expect(alert.textContent?.trim().length).toBeGreaterThan(0); expect(document.body.innerHTML).not.toContain('PRIVATE');
     await userEvent.click(screen.getByRole('button', { name: 'Coba lagi' })); await screen.findByText('Belum ada pengguna.');
   });
 });
@@ -129,7 +139,7 @@ describe('admin create credential handling and reconciliation', () => {
   });
   it('duplicate username409 stays in form with requestID and clears password', async () => {
     routes((_path, init) => init.method === 'POST' ? failure(409, 'USERNAME_TAKEN') : json({ users: [], next_cursor: null })); mount(); await screen.findByText('Belum ada pengguna.'); await createValues();
-    const input = password('Kata sandi awal'); fireEvent.submit(input.form!); const alert = await screen.findByRole('alert'); expect(alert.textContent).toContain('req-admin-ui'); expect(input.value).toBe(''); expect(screen.getByTestId('path').textContent).toBe('/admin/users');
+    const input = password('Kata sandi awal'); fireEvent.submit(input.form!); const alert = await screen.findByRole('alert'); expect(alert.textContent).not.toContain('req-admin-ui'); expect(alert.textContent).not.toContain('ID permintaan'); expect(alert.textContent?.trim().length).toBeGreaterThan(0); expect(input.value).toBe(''); expect(screen.getByTestId('path').textContent).toBe('/admin/users');
   });
   it('ambiguous create needs GET reconciliation before explicit resubmit and preserves initial error', async () => {
     let created = 0; routes((_path, init) => { if (init.method === 'POST') { if (++created === 1) throw new Error('PRIVATE_TRANSPORT'); return json(user(uuid(9)), 201); } return json({ users: created ? [user(uuid(9))] : [], next_cursor: null }); });
@@ -211,12 +221,12 @@ describe('detail confirmations, sessions and credential lifecycle', () => {
     routes((path, init) => init.method === 'POST' ? failure(status) : path.endsWith('/sessions?limit=20') ? json({ sessions: [session()], next_cursor: null }) : json(user())); mount(detail);
     const input = await openPassword(); fireEvent.change(input, { target: { value: 'x' } }); await confirm(); expect(input.value).toBe('');
     if (status === 401) { await screen.findByRole('heading', { name: 'Masuk' }); expect(screen.getByTestId('path').textContent).toBe('/login'); }
-    else { const alerts = await screen.findAllByRole('alert'); expect(alerts.some(alert => alert.textContent?.includes('req-admin-ui'))).toBe(true); expect(screen.getByTestId('path').textContent).toBe(detail); if (status === 403 || status === 404) expect(screen.queryByRole('list', { name: 'Sesi perangkat pengguna' })).toBeNull(); }
+    else { const alerts = await screen.findAllByRole('alert'); expect(alerts.every(alert => !alert.textContent?.includes('req-admin-ui'))).toBe(true); expect(alerts.some(alert => alert.textContent?.includes('Pesan layanan sintetis'))).toBe(true); expect(screen.getByTestId('path').textContent).toBe(detail); if (status === 403 || status === 404) expect(screen.queryByRole('list', { name: 'Sesi perangkat pengguna' })).toBeNull(); }
     expect(screen.queryByText('Kata sandi diperbarui. Semua sesi pengguna dicabut.')).toBeNull(); expect(fetchMock.mock.calls.some(([path]) => path === '/api/auth/logout')).toBe(false);
   });
   it('ambiguous password requires GET user+sessions reconciliation before explicit confirmation/resubmit', async () => {
     let writes = 0; routes((path, init) => { if (init.method === 'POST') { writes++; if (writes === 1) return new Response('PRIVATE_BODY', { status: 500, headers: { 'X-Request-ID': 'req-missing' } }); return json({ user: user(target, { active_session_count: 0 }), signed_out: false }); } return path.endsWith('/sessions?limit=20') ? json({ sessions: writes ? [] : [session()], next_cursor: null }) : json(user(target, { active_session_count: writes ? 0 : 1 })); });
-    mount(detail); const input = await openPassword(); fireEvent.change(input, { target: { value: 'first' } }); await confirm(); const alert = await screen.findByRole('alert'); expect(alert.textContent).toContain('req-missing'); expect(input.value).toBe(''); expect(document.body.textContent).not.toContain('PRIVATE');
+    mount(detail); const input = await openPassword(); fireEvent.change(input, { target: { value: 'first' } }); await confirm(); const alert = await screen.findByRole('alert'); expect(alert.textContent).not.toContain('req-missing'); expect(alert.textContent).toContain('Layanan bermasalah'); expect(input.value).toBe(''); expect(document.body.textContent).not.toContain('PRIVATE');
     fireEvent.submit(input.form!); expect(posts()).toHaveLength(1); await userEvent.click(screen.getByRole('button', { name: 'Periksa hasil tindakan' })); await screen.findByText(/Data layanan diperiksa/);
     expect(posts()).toHaveLength(1); expect(adminCalls().filter(([, init]) => init!.method === 'GET')).toHaveLength(4); expect(screen.getByRole('alert').textContent).toBe(alert.textContent);
     const nextInput = await openPassword(); fireEvent.change(nextInput, { target: { value: 'second' } }); await confirm(); await screen.findByText('Kata sandi diperbarui. Semua sesi pengguna dicabut.'); expect(posts()).toHaveLength(2);

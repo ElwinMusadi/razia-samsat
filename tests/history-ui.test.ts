@@ -83,7 +83,7 @@ describe('history list and navigation', () => {
     const pending = deferred<Response>();
     routes(path => path === listUrl ? json({ raid_sessions: [raid], next_cursor: cursor }) : pending.promise); mount();
     const button = await screen.findByRole('button', { name: 'Muat lebih banyak' });
-    expect(button.className).toContain('min-h-11'); fireEvent.click(button); fireEvent.click(button);
+    expect(button.className).toContain('min-h-12'); fireEvent.click(button); fireEvent.click(button);
     expect((button as HTMLButtonElement).disabled).toBe(true);
     expect(fetchMock.mock.calls.filter(([path]) => path === `${listUrl}?cursor=${cursor}`)).toHaveLength(1);
     await act(async () => pending.resolve(json({ raid_sessions: [raid, closed, closed], next_cursor: null })));
@@ -97,8 +97,9 @@ describe('history list and navigation', () => {
       if (kind === 'network') throw new TypeError('sensitive transport');
       return kind === 'invalid' ? json({ raid_sessions: 'bad' }, 200, { 'X-Request-ID': 'req-invalid' }) : failure(500);
     }); mount();
-    const alert = await screen.findByRole('alert'); expect(alert.className).toContain('amber');
-    if (kind !== 'network') expect(alert.textContent).toContain(kind === 'invalid' ? 'req-invalid' : 'req-history');
+    const alert = await screen.findByRole('alert'); expect(alert.className).toContain('feedback-warning');
+    expect(alert.textContent).not.toMatch(/req-invalid|req-history|ID permintaan/);
+    if (kind !== 'network') expect(alert.textContent).toContain(kind === 'invalid' ? 'Respons layanan tidak valid' : 'Pesan layanan sintetis');
     expect(document.body.textContent).not.toContain('sensitive transport');
     await userEvent.click(screen.getByRole('button', { name: 'Coba lagi' }));
     await screen.findByRole('list', { name: 'Daftar sesi razia' }); expect(screen.queryByRole('alert')).toBeNull();
@@ -129,19 +130,26 @@ describe('history list and navigation', () => {
     expect(screen.getByTestId('path').textContent).toBe('/history');
     expect(fetchMock.mock.calls.some(([path]) => path === '/api/auth/logout')).toBe(false);
   });
-  it.each([true, false])('uses one row with >=44px controls and Scanner conditional (active=%s)', async active => {
+  it.each([true, false])('uses one row with 48px controls and always exposes Scanner (active=%s)', async active => {
     routes(() => json({ raid_sessions: [], next_cursor: null }), auth(active)); mount();
     await screen.findByText('Belum ada sesi razia.');
     const nav = screen.getByRole('navigation', { name: 'Navigasi utama' });
     expect(screen.getAllByRole('navigation')).toHaveLength(1);
-    expect(nav.className).toContain('fixed'); expect(nav.className).toContain('safe-area-inset-bottom');
+    expect(nav.className).toContain('fixed'); expect(nav.className).toContain('bottom-navigation');
     const row = nav.firstElementChild!; expect(row.className).not.toContain('flex-wrap');
-    expect([...row.children].map(node => node.textContent)).toEqual(active ? ['Sesi razia', 'Scanner', 'Riwayat', 'Keluar'] : ['Sesi razia', 'Riwayat', 'Keluar']);
-    for (const control of [...row.children]) for (const token of ['min-h-11', 'min-w-11', 'flex-1', 'px-1', 'whitespace-normal']) expect(control.className.split(' ')).toContain(token);
-    expect(nav.parentElement!.className).toContain('pb-[calc(5rem+env(safe-area-inset-bottom,0px))]');
+    expect([...row.children].map(node => node.textContent)).toEqual(['Scanner', 'Sesi', 'Riwayat']);
+    for (const control of [...row.children]) {
+      expect(control.classList.contains('nav-link')).toBe(true);
+      expect(control.getAttribute('aria-current')).toBe(control.textContent === 'Riwayat' ? 'page' : null);
+      expect(control.classList.contains('active')).toBe(control.textContent === 'Riwayat');
+    }
+    expect(nav.querySelectorAll('[aria-current="page"]')).toHaveLength(1);
+    expect(nav.parentElement!.className).toContain('pb-[calc(6rem+env(safe-area-inset-bottom,0px))]');
+    expect(within(nav).getByRole('link', { name: 'Scanner' }).getAttribute('href')).toBe('/razia/scanner');
+    expect(within(nav).queryByRole('button', { name: 'Keluar' })).toBeNull();
+    expect(screen.getByRole('button', { name: 'Keluar' }).closest('header')).not.toBeNull();
     expect(within(nav).getByRole('link', { name: 'Riwayat' }).getAttribute('aria-current')).toBe('page');
-    // Declarative width arithmetic: 320 - 32px padding - 3*8px gaps = 264 / 4 = 66px per control.
-    expect((320 - 32 - 3 * 8) / 4).toBeGreaterThanOrEqual(44);
+    expect((320 - 32 - 3 * 8) / 4).toBeGreaterThanOrEqual(48);
   });
 });
 
@@ -232,7 +240,7 @@ describe('history detail', () => {
   it('detail error retries summary and checks', async () => {
     let fail = true;
     routes(path => fail ? failure(500) : path === summaryUrl ? recap() : json({ checks: [check(1)], next_cursor: null })); mount(detail);
-    const alert = await screen.findByRole('alert'); expect(alert.textContent).toContain('req-history');
+    const alert = await screen.findByRole('alert'); expect(alert.textContent).toContain('Pesan layanan sintetis'); expect(alert.textContent).not.toContain('req-history');
     fail = false; await userEvent.click(screen.getByRole('button', { name: 'Coba lagi' })); await screen.findByText('DH1ZZ');
   });
 });
@@ -255,7 +263,7 @@ describe('scanner history panel isolation', () => {
     expect(historyCalls().map(([path]) => path)).toEqual([summaryUrl, `${checksUrl}?limit=10`]);
     expect(metric(panel(), 'Total Scan')).toBe('4'); expect(metric(panel(), 'Tidak ditemukan')).toBe('1');
     expect(within(panel()).getByText('Riwayat diperbarui di latar belakang dan dapat tertunda sesaat.')).toBeTruthy();
-    const button = within(panel()).getByRole('button', { name: 'Muat ulang' }); expect(button.className).toContain('min-h-11');
+    const button = within(panel()).getByRole('button', { name: 'Muat ulang' }); expect(button.className).toContain('min-h-12');
     await userEvent.click(button); await waitFor(() => expect(calls).toBe(2));
     expect(historyCalls()).toHaveLength(4);
   });

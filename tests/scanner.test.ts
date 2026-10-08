@@ -65,33 +65,37 @@ describe('scanner shell and navigation', () => {
     const input = await ready(auth(active ? raid : null));
     const nav = screen.getByRole('navigation', { name: 'Navigasi utama' });
     expect(screen.getAllByRole('navigation')).toHaveLength(1);
-    for (const token of ['fixed', 'inset-x-0', 'bottom-0', 'z-20', 'bg-background', 'pb-[calc(0.5rem+env(safe-area-inset-bottom,0px))]']) expect(nav.className.split(' ')).toContain(token);
+    for (const token of ['fixed', 'inset-x-0', 'bottom-0', 'z-20', 'bg-background', 'bottom-navigation']) expect(nav.className.split(' ')).toContain(token);
     expect(nav.closest('header')).toBeNull();
     const row = nav.firstElementChild!;
     for (const token of ['flex', 'w-full', 'max-w-lg', 'gap-2', 'px-4']) expect(row.className.split(' ')).toContain(token);
     expect(row.className).not.toContain('flex-wrap');
-    // Phase 5 adds Riwayat; px-1 keeps four equal >=44px controls on one 320px row.
-    expect(row.children).toHaveLength(active ? 4 : 3);
-    expect([...row.children].map(control => control.textContent)).toEqual(active ? ['Sesi razia', 'Scanner', 'Riwayat', 'Keluar'] : ['Sesi razia', 'Riwayat', 'Keluar']);
-    expect(within(nav).getByRole('link', { name: 'Sesi razia' }).getAttribute('href')).toBe('/razia/setup');
+    expect(row.children).toHaveLength(3);
+    expect([...row.children].map(control => control.textContent)).toEqual(['Scanner', 'Sesi', 'Riwayat']);
+    expect(within(nav).getByRole('link', { name: 'Sesi' }).getAttribute('href')).toBe('/razia/setup');
     expect(within(nav).getByRole('link', { name: 'Riwayat' }).getAttribute('href')).toBe('/history');
-    expect(within(nav).queryByRole('link', { name: 'Scanner' }) !== null).toBe(active);
-    expect(screen.getAllByRole('button', { name: 'Keluar' })).toHaveLength(1);
+    expect(within(nav).getByRole('link', { name: 'Scanner' }).getAttribute('href')).toBe('/razia/scanner');
+    expect(within(nav).queryByRole('button', { name: 'Keluar' })).toBeNull();
+    const logout = screen.getAllByRole('button', { name: 'Keluar' });
+    expect(logout).toHaveLength(1); expect(logout[0]!.closest('header')).not.toBeNull();
     for (const control of [...row.children]) {
-      for (const token of ['min-h-11', 'min-w-11', 'flex-1', 'px-1']) expect(control.className.split(' ')).toContain(token);
+      expect(control.classList.contains('nav-link')).toBe(true);
+      expect(control.getAttribute('aria-current')).toBe(control.textContent === 'Scanner' ? 'page' : null);
+      expect(control.classList.contains('active')).toBe(control.textContent === 'Scanner');
     }
+    expect(nav.querySelectorAll('[aria-current="page"]')).toHaveLength(1);
     const shell = nav.parentElement!;
-    expect(shell.className).toContain('pb-[calc(5rem+env(safe-area-inset-bottom,0px))]');
+    expect(shell.className).toContain('pb-[calc(6rem+env(safe-area-inset-bottom,0px))]');
     expect(screen.getByRole('main').parentElement).toBe(shell);
     expect(screen.getByRole('main').contains(nav)).toBe(false);
     expect(screen.getByRole('main').contains(input)).toBe(true);
-    expect(input.closest('form')!.parentElement!.className).toContain('sticky top-0');
+    expect(input.closest('form')!.parentElement!.className).toBe('scanner-search');
     if (active) {
       expect(within(nav).getByRole('link', { name: 'Scanner' }).getAttribute('aria-current')).toBe('page');
-      await userEvent.click(within(nav).getByRole('link', { name: 'Sesi razia' }));
+      await userEvent.click(within(nav).getByRole('link', { name: 'Sesi' }));
       await screen.findByRole('heading', { name: 'Sesi aktif' });
-      expect(screen.getByRole('navigation', { name: 'Navigasi utama' }).parentElement!.className).toContain('pb-[calc(5rem+env(safe-area-inset-bottom,0px))]');
-      expect(screen.getByRole('link', { name: 'Sesi razia' }).getAttribute('aria-current')).toBe('page');
+      expect(screen.getByRole('navigation', { name: 'Navigasi utama' }).parentElement!.className).toContain('pb-[calc(6rem+env(safe-area-inset-bottom,0px))]');
+      expect(screen.getByRole('link', { name: 'Sesi' }).getAttribute('aria-current')).toBe('page');
       expect(screen.getByRole('link', { name: 'Scanner' }).getAttribute('aria-current')).toBeNull();
     }
   });
@@ -106,7 +110,7 @@ describe('scanner shell and navigation', () => {
     expect(input.getAttribute('enterkeyhint')).toBe('search');
     // Preserve the complete pasted input so the pre-normalization 64-character rule can reject it.
     expect(input.hasAttribute('maxlength')).toBe(false);
-    expect(input.className).toContain('text-2xl'); expect(input.className).toContain('font-bold'); expect(input.className).toContain('uppercase');
+    expect(input.className).toContain('nopol-input');
     expect(input.disabled).toBe(false);
     expect(screen.getByText(/Lokasi sintetis · Jalur arah pusat kota/)).toBeTruthy();
     expect(screen.getByRole('search', { name: 'Cari kendaraan' })).toBeTruthy();
@@ -115,7 +119,7 @@ describe('scanner shell and navigation', () => {
     expect(screen.queryByRole('button', { name: 'Hapus NOPOL' })).toBeNull();
     expect(document.title).toBe('Scanner — Razia SAMSAT');
     expect(screen.getByRole('link', { name: 'Scanner' }).getAttribute('aria-current')).toBe('page');
-    expect(screen.getByRole('link', { name: 'Sesi razia' }).getAttribute('aria-current')).toBeNull();
+    expect(screen.getByRole('link', { name: 'Sesi' }).getAttribute('aria-current')).toBeNull();
     expect(screen.getByRole('button', { name: 'Keluar' })).toBeTruthy();
     expect(lookupCalls()).toHaveLength(0);
   });
@@ -124,15 +128,15 @@ describe('scanner shell and navigation', () => {
     expect(input.disabled).toBe(true);
     expect(screen.getByText('Belum ada sesi razia aktif.')).toBeTruthy();
     expect(screen.getByRole('link', { name: 'Buka sesi razia' }).getAttribute('href')).toBe('/razia/setup');
-    expect(screen.queryByRole('link', { name: 'Scanner' })).toBeNull();
+    expect(screen.getByRole('link', { name: 'Scanner' }).getAttribute('href')).toBe('/razia/scanner');
     fireEvent.change(input, { target: { value: 'DH1234ZZ' } }); fireEvent.submit(input.form!);
     expect(lookupCalls()).toHaveLength(0);
   });
-  it('shows Scanner nav only with an active raid and links setup to scanner', async () => {
+  it('always exposes Scanner navigation and links active setup to scanner', async () => {
     routes(auth(null), nopol => found(nopol)); const view = mount('/razia/setup');
     await screen.findByLabelText('Jalur');
-    expect(screen.queryByRole('link', { name: 'Scanner' })).toBeNull();
-    expect(screen.getByRole('link', { name: 'Sesi razia' }).getAttribute('aria-current')).toBe('page');
+    expect(screen.getByRole('link', { name: 'Scanner' }).getAttribute('href')).toBe('/razia/scanner');
+    expect(screen.getByRole('link', { name: 'Sesi' }).getAttribute('aria-current')).toBe('page');
     expect(document.title).toBe('Sesi razia — Razia SAMSAT');
     view.unmount();
     routes(auth(), nopol => found(nopol)); mount('/razia/setup');
@@ -235,9 +239,11 @@ describe('scanner lookup flow', () => {
     const tax = screen.getByRole('region', { name: 'Status Pajak' });
     const stnk = screen.getByRole('region', { name: 'Status STNK' });
     expect(tax.textContent).toContain('MATI'); expect(tax.textContent).toContain('07 Okt 2026');
-    expect(tax.querySelector('[data-status]')!.className).toContain('bg-red-600');
+    expect(tax.querySelector('[data-status]')!.getAttribute('data-status')).toBe('EXPIRED');
+    expect(tax.querySelector('[data-status] svg[aria-hidden="true"]')).not.toBeNull();
     expect(stnk.textContent).toContain('AKTIF'); expect(stnk.textContent).toContain('01 Mar 2027');
-    expect(stnk.querySelector('[data-status]')!.className).toContain('bg-emerald-600');
+    expect(stnk.querySelector('[data-status]')!.getAttribute('data-status')).toBe('ACTIVE');
+    expect(stnk.querySelector('[data-status] svg[aria-hidden="true"]')).not.toBeNull();
     expect(card.textContent).toContain('Data langsung');
     expect(card.textContent).toMatch(/Diambil .*00\.30\.05 WITA/);
     expect(card.textContent).toContain('Dievaluasi 07 Okt 2026 WITA');
@@ -271,7 +277,8 @@ describe('scanner lookup flow', () => {
     await search('DH1234ZZ');
     const alert = await screen.findByRole('alert');
     expect(alert.textContent).toContain('Periksa kembali format NOPOL');
-    expect(alert.textContent).toContain('req-error');
+    expect(alert.textContent).toContain('Pesan layanan sintetis');
+    expect(alert.textContent).not.toContain('req-error');
     expect(screen.queryByText('Data kendaraan tidak ditemukan')).toBeNull();
     expect(document.activeElement).toBe(field());
   });
@@ -284,7 +291,7 @@ describe('scanner lookup flow', () => {
     expect(fetchMock.mock.calls.some(([path]) => path === '/api/raid-sessions/active')).toBe(true);
     expect(fetchMock.mock.calls.some(([path]) => path === '/api/raid-sessions')).toBe(false);
     expect(screen.getByRole('link', { name: 'Buka sesi razia' }).getAttribute('href')).toBe('/razia/setup');
-    expect(screen.queryByRole('link', { name: 'Scanner' })).toBeNull();
+    expect(screen.getByRole('link', { name: 'Scanner' }).getAttribute('href')).toBe('/razia/scanner');
     expect(screen.queryByText('Data kendaraan tidak ditemukan')).toBeNull();
   });
   it('redirects to login on lookup 401', async () => {
@@ -304,12 +311,13 @@ describe('scanner lookup flow', () => {
     await search('DH1234ZZ');
     const alert = await screen.findByRole('alert');
     expect(alert.textContent).toContain('Data kendaraan tidak dapat diambil');
-    expect(alert.className).toContain('amber');
-    if (_name !== 'network' && _name !== 'non-json' && _name !== 'invalid response') expect(alert.textContent).toContain('ID permintaan: req-error');
+    expect(alert.className).toContain('feedback-warning');
+    expect(alert.textContent).not.toContain('ID permintaan:');
+    if (_name !== 'network' && _name !== 'non-json' && _name !== 'invalid response') expect(alert.textContent).toContain('Pesan layanan sintetis');
     expect(screen.queryByText('Data kendaraan tidak ditemukan')).toBeNull();
     expect(document.activeElement).toBe(field());
     const retry = screen.getByRole('button', { name: 'Coba lagi' });
-    expect(retry.className).toContain('min-h-11');
+    expect(retry.className).toContain('min-h-12');
     await userEvent.click(retry);
     await screen.findByRole('heading', { name: 'DH1234ZZ' });
     expect(screen.queryByRole('alert')).toBeNull();
@@ -331,7 +339,8 @@ describe('scanner lookup flow', () => {
     await ready(auth(), () => pending.promise);
     const user = await search('DH1234ZZ');
     const clear = screen.getByRole('button', { name: 'Hapus NOPOL' });
-    expect(clear.className).toContain('min-h-11'); expect(clear.className).toContain('min-w-11'); expect(clear.className).toContain('w-14');
+    expect(clear.className).toBe('nopol-clear');
+    expect(clear.querySelector('svg[aria-hidden="true"]')).not.toBeNull();
     await user.click(clear);
     expect(lookupSignals[0]!.aborted).toBe(true);
     expect(field().value).toBe('');

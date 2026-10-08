@@ -2,8 +2,9 @@ import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactNo
 import { Link, useParams } from 'react-router';
 import { Button } from './components/ui/button';
 import { useAuth } from './auth';
-import { cn } from './lib/utils';
-import { api, ApiError, formatWita, isAbort, type HistoryCheck, type HistoryRaid, type HistorySummary, type VehicleStatus } from './lib/api';
+import { api, ApiError, formatWita, isAbort, type HistoryCheck, type HistoryRaid, type HistorySummary, type VehicleStatus as Status } from './lib/api';
+import { LookupOutcomeBadge, VehicleStatus } from './components/vehicle';
+import { EmptyState, PageHeader, Spinner } from './components/ui/layout';
 
 type Failure = { kind: 'forbidden' } | { kind: 'not-found' } | { kind: 'error'; error: ApiError | null };
 function classify(failure: unknown): Failure {
@@ -62,14 +63,7 @@ export function useLatestRequest() {
   return { start, cancel };
 }
 
-function Title({ children }: { children: ReactNode }) {
-  const ref = useRef<HTMLHeadingElement>(null);
-  useEffect(() => { ref.current?.focus(); }, []);
-  return <h1 ref={ref} tabIndex={-1} className="text-2xl font-semibold">{children}</h1>;
-}
-function RequestId({ id }: { id?: string }) {
-  return id ? <p className="break-all text-sm">ID permintaan: {id}</p> : null;
-}
+function Title({ children }: { children: ReactNode }) { return <PageHeader title={children} />; }
 function FailureView({ failure, onRetry, disabled }: { failure: Failure; onRetry?: () => void; disabled?: boolean }) {
   if (failure.kind === 'forbidden') return <div role="alert" className="error-message flex flex-col gap-1">
     <p className="font-semibold">Akses ditolak</p>
@@ -79,27 +73,14 @@ function FailureView({ failure, onRetry, disabled }: { failure: Failure; onRetry
     <p className="font-semibold">Sesi razia tidak ditemukan</p>
     <p>Sesi mungkin tidak ada atau bukan milik Anda.</p>
   </div>;
-  return <div role="alert" className="flex flex-col gap-2 rounded-md border-2 border-amber-600 bg-amber-100 p-4 text-amber-950">
+  return <div role="alert" className="flex flex-col gap-2 feedback feedback-warning">
     <p className="text-lg font-bold">Riwayat tidak dapat dimuat</p>
     <p>{failure.error?.message ?? 'Terjadi kesalahan. Coba lagi.'}</p>
-    <RequestId id={failure.error?.requestId} />
     {onRetry && <Button type="button" variant="outline" className="self-start" disabled={disabled} onClick={onRetry}>Coba lagi</Button>}
   </div>;
 }
-function Spinner() {
-  return <span aria-hidden="true" className="inline-block size-4 shrink-0 animate-spin rounded-full border-2 border-current border-t-transparent motion-reduce:animate-none" />;
-}
-
-// Small badges use darker tones for normal-size white text; meaning is always textual.
-const STATUS_BADGE: Record<VehicleStatus, { text: string; className: string }> = {
-  ACTIVE: { text: 'AKTIF', className: 'bg-emerald-700 text-white' },
-  EXPIRED: { text: 'MATI', className: 'bg-red-700 text-white' },
-  UNKNOWN: { text: 'TIDAK DAPAT DITENTUKAN', className: 'border border-stone-900 bg-stone-100 text-stone-950' },
-};
-function StatusBadge({ status }: { status: VehicleStatus | null }) {
-  if (status === null) return <span data-status="none" className="font-semibold">—</span>;
-  const view = STATUS_BADGE[status];
-  return <span data-status={status} className={cn('inline-block rounded px-2 py-0.5 text-sm font-bold uppercase tracking-wide break-words', view.className)}>{view.text}</span>;
+function StatusBadge({ status }: { status: Status | null }) {
+  return status === null ? <span data-status="none" className="font-semibold">—</span> : <VehicleStatus status={status} compact />;
 }
 const raidStatusText = (raid: HistoryRaid) => raid.status === 'ACTIVE' ? 'AKTIF' : 'DITUTUP';
 const isoSeconds = (seconds: number) => new Date(seconds * 1000).toISOString();
@@ -152,10 +133,10 @@ function HistoryList() {
     <p>Daftar sesi razia{admin ? ' seluruh petugas' : ' milik Anda'}, terbaru di atas.</p>
     {phase === 'loading' && <p role="status" className="flex items-center gap-2"><Spinner />Memuat riwayat sesi…</p>}
     {blocking && <FailureView failure={failure.failure} onRetry={loadHead} disabled={busy} />}
-    {phase !== 'loading' && !blocking && items.length === 0 && <p role="status">Belum ada sesi razia.</p>}
+    {phase !== 'loading' && !blocking && items.length === 0 && <EmptyState title="Belum ada sesi razia.">Sesi razia yang Anda buka akan tercatat di sini.</EmptyState>}
     {items.length > 0 && <ul aria-label="Daftar sesi razia" className="flex flex-col gap-3">
       {items.map(raid => <li key={raid.id}>
-        <Link to={`/history/${encodeURIComponent(raid.id)}`} className="panel flex min-h-11 flex-col gap-1 bg-white text-black hover:bg-accent">
+        <Link to={`/history/${encodeURIComponent(raid.id)}`} className="panel flex min-h-11 flex-col gap-1 bg-card text-foreground hover:bg-accent">
           <span className="break-words text-lg font-semibold">{raid.location.name} · Jalur {raid.lane}</span>
           <span>Status: <span className="font-bold">{raidStatusText(raid)}</span></span>
           <span>Mulai: <Instant seconds={raid.started_at} /></span>
@@ -172,7 +153,7 @@ function HistoryList() {
 }
 
 function RaidHeader({ raid, admin }: { raid: HistoryRaid; admin: boolean }) {
-  return <dl className="panel grid grid-cols-1 gap-2 bg-white text-black sm:grid-cols-2">
+  return <dl className="panel grid grid-cols-1 gap-2 bg-card text-foreground sm:grid-cols-2">
     <div><dt className="text-sm">Lokasi · Jalur</dt><dd className="break-words font-semibold">{raid.location.name} · Jalur {raid.lane}</dd></div>
     <div><dt className="text-sm">Status sesi</dt><dd className="font-bold">{raidStatusText(raid)}</dd></div>
     <div><dt className="text-sm">Mulai</dt><dd><Instant seconds={raid.started_at} /></dd></div>
@@ -181,7 +162,7 @@ function RaidHeader({ raid, admin }: { raid: HistoryRaid; admin: boolean }) {
   </dl>;
 }
 function Metric({ label, value, help }: { label: string; value: number; help?: string }) {
-  return <div className="rounded-md border border-input bg-white p-3 text-black">
+  return <div className="metric">
     <dt className="text-sm">{label}{help && <span className="block text-xs">{help}</span>}</dt>
     <dd className="text-2xl font-extrabold" data-metric={label}>{value}</dd>
   </div>;
@@ -200,9 +181,9 @@ function Recap({ summary }: { summary: HistorySummary }) {
   </section>;
 }
 function CheckItem({ check }: { check: HistoryCheck }) {
-  return <li className="flex flex-col gap-2 rounded-md border border-input bg-white p-3 text-black" data-check-id={check.id}>
-    <p className="break-all text-xl font-extrabold tracking-wider">{check.nopol}</p>
-    <p className="font-semibold">{check.outcome === 'FOUND' ? 'Ditemukan' : 'Tidak ditemukan'}</p>
+  return <li className="history-row" data-check-id={check.id}>
+    <p className="history-nopol">{check.nopol}</p>
+    <LookupOutcomeBadge outcome={check.outcome} />
     <dl className="grid grid-cols-1 gap-2 text-sm sm:grid-cols-2">
       <div><dt>Status Pajak</dt><dd><StatusBadge status={check.tax_status} /></dd></div>
       <div><dt>Status STNK</dt><dd><StatusBadge status={check.stnk_status} /></dd></div>
@@ -305,10 +286,9 @@ export function RaidHistoryPanel({ raidId, refreshRef }: { raidId: string; refre
     {/* Secondary panel: polite updates only, never alerts that could interrupt the lookup flow. */}
     <div aria-live="polite" className="flex flex-col gap-2">
       {loading && <p className="flex items-center gap-2 text-sm"><Spinner />Memuat riwayat sesi…</p>}
-      {failure && <div data-panel-error="" className="flex flex-col gap-1 rounded-md border-2 border-amber-600 bg-amber-100 p-3 text-amber-950">
+      {failure && <div data-panel-error="" className="flex flex-col gap-1 feedback feedback-warning">
         <p className="font-semibold">Riwayat sesi belum dapat dimuat.</p>
         <p>{message}</p>
-        {failure.kind === 'error' && <RequestId id={failure.error?.requestId} />}
       </div>}
     </div>
     {data && <>

@@ -5,8 +5,10 @@ type ScanContext = { auth: AuthState | null; busy: boolean };
 import { Link } from 'react-router';
 import { Button } from './components/ui/button';
 import { useAuth } from './auth';
-import { cn } from './lib/utils';
-import { api, ApiError, formatCalendarDate, formatInstantWita, isAbort, normalizeNopol, type VehicleFound, type VehicleStatus } from './lib/api';
+import { api, ApiError, isAbort, normalizeNopol, type VehicleFound } from './lib/api';
+import { NopolInput } from './components/nopol-input';
+import { LookupOutcomeBadge, VehicleResultCard } from './components/vehicle';
+import { EmptyState, Spinner } from './components/ui/layout';
 import { RaidHistoryPanel } from './history';
 
 export const LOOKUP_DEBOUNCE_MS = 600;
@@ -21,47 +23,6 @@ type ScanState =
   | { kind: 'raid-required'; nopol: string; error: ApiError; sync: 'pending' | 'done' | 'failed' }
   | { kind: 'failure'; nopol: string; error: ApiError | null };
 
-const STATUS_VIEW: Record<VehicleStatus, { text: string; className: string }> = {
-  ACTIVE: { text: 'AKTIF', className: 'bg-emerald-600 text-white' },
-  EXPIRED: { text: 'MATI', className: 'bg-red-600 text-white' },
-  UNKNOWN: { text: 'TIDAK DAPAT DITENTUKAN', className: 'border-2 border-stone-900 bg-stone-100 text-stone-950' },
-};
-
-function Spinner() {
-  return <span aria-hidden="true" className="inline-block size-4 shrink-0 animate-spin rounded-full border-2 border-current border-t-transparent motion-reduce:animate-none" />;
-}
-function RequestId({ id }: { id?: string }) {
-  return id ? <p className="break-all text-sm">ID permintaan: {id}</p> : null;
-}
-function StatusBlock({ id, label, status, due }: { id: string; label: string; status: VehicleStatus; due: string | null }) {
-  const view = STATUS_VIEW[status];
-  return <section aria-labelledby={id} className="flex flex-col gap-2 rounded-md border border-input bg-white p-3">
-    <h3 id={id} className="text-base font-semibold">{label}</h3>
-    <p data-status={status} className={cn('rounded-md px-3 py-3 text-center text-2xl font-extrabold uppercase tracking-wide break-words', view.className)}>{view.text}</p>
-    <p>Jatuh tempo: <span className="font-semibold">{formatCalendarDate(due)}</span></p>
-  </section>;
-}
-function VehicleCard({ result }: { result: VehicleFound }) {
-  const { vehicle } = result;
-  return <article aria-labelledby="result-nopol" className="flex flex-col gap-4 rounded-md border border-input bg-white p-4 text-black">
-    <h2 id="result-nopol" className="break-all text-3xl font-extrabold tracking-wider">{vehicle.nopol}</h2>
-    <dl className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-      <div><dt className="text-sm">Nama pemilik</dt><dd className="break-words text-lg font-semibold">{vehicle.owner_name}</dd></div>
-      <div><dt className="text-sm">Merek</dt><dd className="break-words text-lg font-semibold">{vehicle.brand}</dd></div>
-      <div><dt className="text-sm">Tipe</dt><dd className="break-words text-lg font-semibold">{vehicle.type}</dd></div>
-      <div><dt className="text-sm">Warna</dt><dd className="break-words text-lg font-semibold">{vehicle.color}</dd></div>
-    </dl>
-    <StatusBlock id="tax-status-title" label="Status Pajak" status={vehicle.tax_status} due={vehicle.tax_due_date} />
-    <StatusBlock id="stnk-status-title" label="Status STNK" status={vehicle.stnk_status} due={vehicle.stnk_due_date} />
-    <div className="flex flex-col gap-1 text-sm">
-      <p className="font-semibold">{result.source === 'LIVE' ? 'Data langsung' : 'Data cache (≤5 menit)'}</p>
-      <p>Diambil <time dateTime={result.fetched_at}>{formatInstantWita(result.fetched_at)}</time></p>
-      <p>Dievaluasi <time dateTime={result.evaluated_on}>{formatCalendarDate(result.evaluated_on)}</time> WITA</p>
-      <RequestId id={result.request_id} />
-    </div>
-    <p className="text-sm">Status adalah data administratif. Keputusan pemeriksaan tetap pada petugas.</p>
-  </article>;
-}
 
 export function Scanner() {
   const { auth, busy, read, setRaid } = useAuth();
@@ -179,25 +140,17 @@ export function Scanner() {
   const showHint = value !== '' && normalizeNopol(value) === null;
   const describedBy = [showHint ? 'nopol-hint' : '', 'nopol-help'].filter(Boolean).join(' ');
   return <section aria-labelledby="scanner-title" className="flex flex-col gap-4">
-    <div className="sticky top-0 z-10 -mx-4 flex flex-col gap-2 border-b border-input bg-background px-4 pb-3 pt-2">
-      <h1 id="scanner-title" className="text-2xl font-semibold">Scanner</h1>
+    <div className="scanner-search">
+      <h1 id="scanner-title" className="scanner-heading">Scanner</h1>
       {raid && <p className="break-words text-sm font-medium"><span className="sr-only">Sesi razia aktif: </span>{raid.location.name} · Jalur {raid.lane}</p>}
       <form role="search" aria-label="Cari kendaraan" onSubmit={submit} className="flex flex-col gap-2">
         <label htmlFor="nopol-input" className="font-medium">Nomor polisi (NOPOL)</label>
-        <div className="relative">
-          <input
-            ref={input} id="nopol-input" name="nopol" type="text" value={value} onChange={change} disabled={!enabled}
-            autoCapitalize="characters" autoComplete="off" autoCorrect="off" spellCheck={false} inputMode="text" enterKeyHint="search"
-            placeholder="DH 1234 ZZ" aria-describedby={describedBy} aria-invalid={showHint || state.kind === 'input-error'}
-            className="min-h-14 pr-14 text-2xl font-bold uppercase tracking-wider placeholder:font-normal placeholder:normal-case"
-          />
-          {enabled && (value !== '' || state.kind !== 'idle') && <button
-            type="button" onClick={clear} aria-label="Hapus NOPOL"
-            className="absolute inset-y-0 right-0 flex min-h-11 w-14 min-w-11 items-center justify-center rounded-r-md text-foreground hover:bg-accent focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
-          >
-            <svg aria-hidden="true" viewBox="0 0 24 24" className="size-7" fill="none" stroke="currentColor" strokeWidth={3} strokeLinecap="round"><path d="M6 6l12 12M18 6L6 18" /></svg>
-          </button>}
-        </div>
+        <NopolInput
+          ref={input} id="nopol-input" name="nopol" type="text" value={value} onChange={change} disabled={!enabled}
+          autoCapitalize="characters" autoComplete="off" autoCorrect="off" spellCheck={false} inputMode="text" enterKeyHint="search"
+          placeholder="DH 1234 ZZ" aria-describedby={describedBy} aria-invalid={showHint || state.kind === 'input-error'}
+          showClear={enabled && (value !== '' || state.kind !== 'idle')} onClear={clear}
+        />
         <p id="nopol-help" className="text-sm">Pencarian otomatis setelah selesai mengetik. Tekan Enter untuk mencari segera.</p>
         {showHint && <p id="nopol-hint" className="text-sm font-medium">Format NOPOL belum valid: maksimal 64 karakter, 1–2 huruf, 1–4 angka, 0–3 huruf, tanpa tanda baca (contoh DH 1234 ZZ).</p>}
       </form>
@@ -213,32 +166,30 @@ export function Scanner() {
       <Button asChild><Link to="/razia/setup">Buka sesi razia</Link></Button>
     </div>}
     <div aria-live="polite" className="flex flex-col gap-4">
-      {state.kind === 'found' && <VehicleCard result={state.result} />}
-      {state.kind === 'not-found' && <div className="flex flex-col gap-2 rounded-md border-2 border-stone-900 bg-white p-4 text-black">
-        <p className="text-xl font-bold">Data kendaraan tidak ditemukan</p>
-        <p>NOPOL: <span className="break-all font-bold tracking-wider">{state.nopol}</span></p>
-        <p className="text-sm">Periksa kembali NOPOL yang diketik.</p>
-        <RequestId id={state.requestId} />
-      </div>}
+      {state.kind === 'found' && <VehicleResultCard result={state.result} />}
+      {state.kind === 'not-found' && <section className="vehicle-result" aria-labelledby="not-found-nopol">
+        <div className="flex flex-wrap items-center justify-between gap-2"><p className="eyebrow">Hasil pemeriksaan</p><LookupOutcomeBadge outcome="NOT_FOUND" /></div>
+        <h2 id="not-found-nopol" className="result-nopol">{state.nopol}</h2>
+        <p className="font-semibold">Data kendaraan tidak ditemukan</p>
+        <p className="supporting">Periksa kembali NOPOL yang diketik.</p>
+      </section>}
+      {raid && state.kind === 'idle' && value === '' && <EmptyState title="Siap memeriksa kendaraan.">Ketik nomor polisi. Hasil pajak dan STNK akan tampil di sini.</EmptyState>}
     </div>
     {state.kind === 'input-error' && <div role="alert" className="error-message flex flex-col gap-1">
       <p className="font-semibold">NOPOL ditolak oleh layanan. Periksa kembali format NOPOL.</p>
       <p>{state.error.message}</p>
-      <RequestId id={state.error.requestId} />
     </div>}
     {state.kind === 'raid-required' && <div role="alert" className="error-message flex flex-col gap-3">
       <p className="font-semibold">Sesi razia aktif diperlukan untuk memeriksa kendaraan.</p>
       <p>{state.error.message}</p>
-      <RequestId id={state.error.requestId} />
       {state.sync === 'pending' && <p className="text-sm">Memeriksa status sesi razia…</p>}
       {state.sync === 'failed' && <p className="text-sm">Status sesi razia belum dapat diperiksa ulang.</p>}
       <Button asChild><Link to="/razia/setup">Buka sesi razia</Link></Button>
     </div>}
-    {state.kind === 'failure' && <div role="alert" className="flex flex-col gap-2 rounded-md border-2 border-amber-600 bg-amber-100 p-4 text-amber-950">
+    {state.kind === 'failure' && <div role="alert" className="feedback feedback-warning flex flex-col gap-2">
       <p className="text-lg font-bold">Data kendaraan tidak dapat diambil</p>
       <p>{state.error?.message ?? 'Terjadi kesalahan. Coba lagi.'}</p>
       <p className="text-sm">NOPOL: <span className="font-semibold">{state.nopol}</span>. Ini bukan berarti kendaraan tidak terdaftar.</p>
-      <RequestId id={state.error?.requestId} />
       <Button type="button" variant="outline" onClick={retry} className="self-start">Coba lagi</Button>
     </div>}
     {/* Keyed by user, role, expiry and raid: changes to those fields drop prior panel data before paint.

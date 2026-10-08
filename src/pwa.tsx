@@ -1,10 +1,13 @@
-import { useEffect, useRef, useState } from 'react';
+import { createContext, useContext, useEffect, useRef, useState, type ReactNode } from 'react';
 import { Button } from './components/ui/button';
 
 type InstallEvent = Event & { prompt: () => Promise<void>; userChoice: Promise<{ outcome: string }> };
 
-/** Installation state is ephemeral. Never persist authentication, inputs or device profiles. */
-export function PwaControls() {
+type PwaState = { supported: boolean; installed: boolean; available: boolean; pending: boolean; message: string; update: boolean; registrationFailed: boolean; install: () => Promise<void> };
+const PwaContext = createContext<PwaState | null>(null);
+
+/** Installation state is ephemeral. One app-level owner survives route and account disclosure changes. */
+function usePwaState(): PwaState {
   const supported = window.isSecureContext === true && 'serviceWorker' in navigator;
   const [installed, setInstalled] = useState(() => window.matchMedia?.('(display-mode: standalone)').matches === true);
   const [available, setAvailable] = useState(false);
@@ -83,16 +86,30 @@ export function PwaControls() {
       prompting.current = false; if (alive.current) setPending(false);
     }
   }
+  return { supported, installed, available, pending, message, update, registrationFailed, install };
+}
+export function PwaProvider({ children }: { children: ReactNode }) {
+  const state = usePwaState();
+  return <PwaContext.Provider value={state}>{children}</PwaContext.Provider>;
+}
+/** Standalone consumers keep the original API; App consumers reuse its single provider. */
+export function PwaControls() {
+  const shared = useContext(PwaContext);
+  return shared ? <PwaView state={shared} /> : <StandalonePwaControls />;
+}
+function StandalonePwaControls() { return <PwaView state={usePwaState()} />; }
+function PwaView({ state }: { state: PwaState }) {
+  const { supported, installed, available, pending, message, update, registrationFailed, install } = state;
   if (!supported) return null;
-  return <aside aria-label="Instalasi aplikasi" className="mx-auto flex w-full max-w-lg min-w-0 flex-col gap-2 px-4 pt-4">
+  return <aside aria-label="Instalasi aplikasi" className="pwa-controls">
     {!installed && <>
-      {available || pending ? <Button type="button" variant="outline" className="min-w-11 self-start whitespace-normal break-words" disabled={pending} onClick={() => { void install(); }}>{pending ? 'Membuka instalasi…' : 'Pasang aplikasi'}</Button> : <details className="text-sm">
-        <summary className="flex min-h-11 min-w-11 cursor-pointer items-center underline">Panduan instalasi</summary>
+      {available || pending ? <Button type="button" variant="outline" className="min-w-12 self-start whitespace-normal break-words" disabled={pending} onClick={() => { void install(); }}>{pending ? 'Membuka instalasi…' : 'Pasang aplikasi'}</Button> : <details className="text-sm">
+        <summary className="flex min-h-12 min-w-12 cursor-pointer items-center underline">Panduan instalasi</summary>
         <p>Di browser Android yang mendukung, buka menu browser lalu pilih Pasang aplikasi atau Tambahkan ke layar utama. Nama menu dan ketersediaannya bergantung pada browser. Instalasi tetap memerlukan internet; pengecekan data tidak tersedia offline.</p>
       </details>}
       {message && <p role="status" className="break-words text-sm">{message}</p>}
     </>}
     {registrationFailed && <p role="status" className="break-words text-sm">Persiapan instalasi belum berhasil. Aplikasi online tetap dapat digunakan; coba buka kembali setelah pekerjaan selesai.</p>}
-    {update && <p role="status" className="break-words text-sm">Pembaruan aplikasi tersedia. Selesaikan pengecekan atau tindakan yang sedang berjalan, lalu tutup semua jendela aplikasi dan buka kembali. Tidak ada muat ulang otomatis.</p>}
+    {update && <p role="status" className="break-words text-sm">Pembaruan aplikasi tersedia. Setelah selesai, tutup dan buka kembali aplikasi. Tidak ada muat ulang otomatis.</p>}
   </aside>;
 }

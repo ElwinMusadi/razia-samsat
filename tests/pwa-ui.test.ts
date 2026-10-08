@@ -1,9 +1,10 @@
 // @vitest-environment jsdom
 import { createElement, StrictMode } from 'react';
-import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
-import { MemoryRouter } from 'react-router';
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { MemoryRouter, useNavigate } from 'react-router';
+import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { PwaControls } from '../src/pwa';
+import { PwaControls, PwaProvider } from '../src/pwa';
 import { App } from '../src/app';
 import { AuthProvider } from '../src/auth';
 
@@ -58,7 +59,8 @@ describe('ephemeral PWA controls', () => {
     const choice = deferred<{ outcome: string }>(); const event = installEvent(choice.promise);
     expect(event.defaultPrevented).toBe(true);
     const button = screen.getByRole('button', { name: 'Pasang aplikasi' });
-    expect(button.className).toContain('min-h-11'); expect(button.className).toContain('whitespace-normal');
+    expect(button.classList.contains('min-h-12')).toBe(true); expect(button.classList.contains('min-w-12')).toBe(true);
+    expect(button.className).toContain('whitespace-normal');
     fireEvent.click(button); fireEvent.click(button); expect(event.prompt).toHaveBeenCalledTimes(1);
     expect((screen.getByRole('button', { name: 'Membuka instalasi…' }) as HTMLButtonElement).disabled).toBe(true);
     await act(async () => choice.resolve({ outcome }));
@@ -110,6 +112,64 @@ describe('ephemeral PWA controls', () => {
   it('does not announce first installation as an application update', async () => {
     const value = registration(); value.installing = Object.assign(new EventTarget(), { state: 'installed' }); register.mockResolvedValue(value); setup();
     await waitFor(() => expect(register).toHaveBeenCalled()); expect(screen.queryByText(/Pembaruan aplikasi tersedia/)).toBeNull();
+  });
+  it('shares one registration and pending prompt across control remounts', async () => {
+    const first = createElement(PwaProvider, null, createElement(PwaControls, { key: 'first' }));
+    const view = render(first); await waitFor(() => expect(register).toHaveBeenCalledTimes(1));
+    const event = installEvent(); expect(event.defaultPrevented).toBe(true);
+    view.rerender(createElement(PwaProvider, null, createElement(PwaControls, { key: 'next' })));
+    fireEvent.click(screen.getByRole('button', { name: 'Pasang aplikasi' }));
+    await waitFor(() => expect(event.prompt).toHaveBeenCalledTimes(1));
+    expect(register).toHaveBeenCalledTimes(1);
+  });
+  it('keeps PWA and account details collapsed without hiding the only logout action', async () => {
+    const state = { user: { id: '11111111-1111-4111-8111-111111111111', username: 'synthetic.officer', role: 'OFFICER' }, session: { expires_at: Math.floor(Date.now() / 1000) + 3600 }, active_raid_session: null };
+    vi.stubGlobal('fetch', vi.fn(async input => new Response(JSON.stringify(String(input) === '/api/auth/me' ? state : { locations: [] }))));
+    render(createElement(MemoryRouter, { initialEntries: ['/razia/setup'] }, createElement(AuthProvider, null, createElement(App))));
+    await screen.findByRole('heading', { name: 'Sesi razia' });
+    const account = document.querySelector<HTMLDetailsElement>('.account-disclosure')!;
+    expect(account.open).toBe(false); expect(screen.getByRole('complementary', { name: 'Instalasi aplikasi' }).closest('details')!.hasAttribute('open')).toBe(false);
+    expect(screen.getAllByRole('button', { name: 'Keluar' })).toHaveLength(1); expect(screen.getByRole('button', { name: 'Keluar' }).closest('header')).not.toBeNull();
+    expect(within(screen.getByRole('navigation')).queryByRole('button', { name: 'Keluar' })).toBeNull();
+    const event = installEvent(); expect(event.defaultPrevented).toBe(true);
+    await userEvent.click(screen.getByText('Akun')); expect(account.open).toBe(true);
+    expect(screen.getByText('synthetic.officer')).toBeTruthy(); expect(screen.getByText('Keluar tidak menutup sesi razia aktif.')).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'Pasang aplikasi' })); await waitFor(() => expect(event.prompt).toHaveBeenCalledTimes(1));
+    expect(register).toHaveBeenCalledTimes(1);
+  });
+  it('retains a pre-login install event across routes without registering twice', async () => {
+    let signedIn = false;
+    const state = { user: { id: '11111111-1111-4111-8111-111111111111', username: 'synthetic.officer', role: 'OFFICER' }, session: { expires_at: Math.floor(Date.now() / 1000) + 3600 }, active_raid_session: null };
+    vi.stubGlobal('fetch', vi.fn(async input => {
+      if (String(input) === '/api/auth/me') return new Response(JSON.stringify(signedIn ? state : { error: { code: 'AUTHENTICATION_ERROR', message: 'Sesi tidak tersedia.', request_id: 'synthetic-request' } }), { status: signedIn ? 200 : 401 });
+      if (String(input) === '/api/auth/login') { signedIn = true; return new Response(JSON.stringify(state)); }
+      return new Response(JSON.stringify({ locations: [] }));
+    }));
+    render(createElement(MemoryRouter, { initialEntries: ['/login'] }, createElement(AuthProvider, null, createElement(App))));
+    await screen.findByRole('heading', { name: 'Masuk' }); await waitFor(() => expect((screen.getByRole('button', { name: 'Masuk' }) as HTMLButtonElement).disabled).toBe(false));
+    const event = installEvent();
+    const footer = document.querySelector<HTMLDetailsElement>('.installation-disclosure')!;
+    expect(footer.open).toBe(false); expect(footer.compareDocumentPosition(document.querySelector('form')!) & Node.DOCUMENT_POSITION_PRECEDING).toBeTruthy();
+    fireEvent.change(screen.getByLabelText('Nama pengguna'), { target: { value: 'synthetic.officer' } }); fireEvent.change(screen.getByLabelText('Kata sandi'), { target: { value: 'synthetic-password' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Masuk' })); await screen.findByRole('heading', { name: 'Sesi razia' });
+    await userEvent.click(screen.getByText('Akun')); fireEvent.click(screen.getByRole('button', { name: 'Pasang aplikasi' }));
+    await waitFor(() => expect(event.prompt).toHaveBeenCalledTimes(1)); expect(register).toHaveBeenCalledTimes(1);
+  });
+  it('keeps update notices in account disclosure and preserves scanner focus and input during navigation', async () => {
+    const value = registration(true); register.mockResolvedValue(value); serviceWorker.controller = {};
+    const raid = { id: '22222222-2222-4222-8222-222222222222', location: { id: '33333333-3333-4333-8333-333333333333', name: 'Lokasi sintetis' }, lane: 'timur', status: 'ACTIVE', started_at: 1791331200, closed_at: null };
+    const state = { user: { id: '11111111-1111-4111-8111-111111111111', username: 'synthetic.officer', role: 'OFFICER' }, session: { expires_at: Math.floor(Date.now() / 1000) + 3600 }, active_raid_session: raid };
+    vi.stubGlobal('fetch', vi.fn(async input => new Response(JSON.stringify(String(input) === '/api/auth/me' ? state : String(input) === '/api/history/raid-sessions' ? { raid_sessions: [], next_cursor: null } : String(input).endsWith('/summary') ? { raid_session: { ...raid, owner: state.user }, summary: { total_checks: 0, found: 0, not_found: 0, tax_active: 0, tax_expired: 0, tax_unknown: 0 } } : { checks: [], next_cursor: null }))));
+    function RouteControl() { const navigate = useNavigate(); return createElement('button', { onClick: () => navigate('/history') }, 'Test route'); }
+    render(createElement(MemoryRouter, { initialEntries: ['/razia/scanner'] }, createElement(AuthProvider, null, createElement(App), createElement(RouteControl))));
+    const input = await screen.findByLabelText('Nomor polisi (NOPOL)') as HTMLInputElement; fireEvent.change(input, { target: { value: 'dh-' } }); input.focus();
+    await waitFor(() => expect(register).toHaveBeenCalledTimes(1));
+    expect(document.querySelector('.account-disclosure')!.hasAttribute('open')).toBe(false);
+    expect(screen.getByRole('complementary', { name: 'Instalasi aplikasi' }).closest('details')!.hasAttribute('open')).toBe(false); expect(input.value).toBe('dh-'); expect(document.activeElement).toBe(input);
+    await userEvent.click(screen.getByText('Akun')); const notice = screen.getByText(/Pembaruan aplikasi tersedia/);
+    expect(notice.closest('.account-disclosure')).not.toBeNull(); expect(notice.textContent).toContain('Tidak ada muat ulang otomatis');
+    await userEvent.click(screen.getByRole('button', { name: 'Test route' })); await screen.findByRole('heading', { name: 'Riwayat' });
+    expect(register).toHaveBeenCalledTimes(1);
   });
   it('ignores registration completion and install events after unmount', async () => {
     const result = deferred<ReturnType<typeof registration>>(); register.mockReturnValue(result.promise);

@@ -87,7 +87,8 @@ describe('auth UI', () => {
     mount('/login'); const user = await loginFields(); await user.click(screen.getByRole('button', { name: 'Masuk' }));
     const alert = await screen.findByRole('alert');
     expect(alert.textContent).toContain('Pesan layanan sintetis');
-    expect(alert.textContent).toContain('req-synthetic');
+    expect(alert.textContent).not.toContain('req-synthetic');
+    expect(alert.textContent).not.toContain('ID permintaan:');
     if (code === 'SESSION_CONFLICT') expect(alert.textContent).toContain('Hubungi admin');
     expect((screen.getByLabelText('Kata sandi') as HTMLInputElement).value).toBe('');
     expect(screen.getByTestId('path').textContent).toBe('/login');

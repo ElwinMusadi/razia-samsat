@@ -1,5 +1,5 @@
 // Operator tooling only. No bootstrap endpoint and no automatic resource provisioning.
-import { spawnSync } from 'node:child_process';
+import { spawnSync, type SpawnSyncOptions } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import { mkdtemp, rm, writeFile, copyFile } from 'node:fs/promises';
 import { constants } from 'node:fs';
@@ -30,6 +30,29 @@ export const runWrangler: CliRunner = async args => {
     return { status: result.status, stdout: result.stdout ?? '', stderr: result.stderr ?? '' };
   } finally { await rm(directory, { recursive: true, force: true }); }
 };
+
+type BuildCommandRunner = (command: string, args: string[], options: SpawnSyncOptions) => { status: number | null };
+/** Rebuild shared dist deterministically; inherited shell/dotenv UAT markers cannot select the UI. */
+export async function buildProductionAssets(run: BuildCommandRunner = spawnSync, environment: NodeJS.ProcessEnv = process.env): Promise<void> {
+  const env = { ...environment, VITE_APP_MODE: 'production', NODE_ENV: 'production' };
+  const tsc = join(PROJECT_ROOT, 'node_modules', 'typescript', 'bin', 'tsc');
+  const vite = join(PROJECT_ROOT, 'node_modules', 'vite', 'bin', 'vite.js');
+  const commands = [
+    ...['tsconfig.app.json', 'tsconfig.worker.json', 'tsconfig.tools.json'].map(config => [tsc, '-p', config]),
+    [vite, 'build', '--mode', 'production', '--emptyOutDir'],
+  ];
+  try {
+    for (const args of commands) {
+      const result = run(process.execPath, args, { cwd: PROJECT_ROOT, env, shell: false, stdio: ['ignore', 'pipe', 'pipe'] });
+      if (result.status !== 0) fail('Build aset production gagal; operasi dihentikan sebelum Wrangler.');
+    }
+  } catch { fail('Build aset production gagal; detail sensitif disembunyikan dan Wrangler tidak dijalankan.'); }
+}
+
+async function requireProductionAssets(build: () => Promise<void>): Promise<void> {
+  try { await build(); }
+  catch { fail('Build aset production gagal; detail sensitif disembunyikan dan Wrangler tidak dijalankan.'); }
+}
 
 export async function verifyResources(target: ProductionTarget, run: CliRunner): Promise<void> {
   const whoami = json(await run(['whoami','--json']));
@@ -162,7 +185,7 @@ export async function executeRemoteSql(sql: string, run: CliRunner): Promise<unk
   } finally { await rm(directory, { recursive: true, force: true }); }
 }
 
-export type OperationDependencies = { run: CliRunner; load: () => ProductionTarget; password: () => Promise<string>; domain: (target: ProductionTarget, flags: Map<string,string>) => Promise<void>; sql: SqlRunner; notice: (message: string) => void };
+export type OperationDependencies = { run: CliRunner; build: () => Promise<void>; load: () => ProductionTarget; password: () => Promise<string>; domain: (target: ProductionTarget, flags: Map<string,string>) => Promise<void>; sql: SqlRunner; notice: (message: string) => void };
 export async function runProduction(argv: string[], dependencies: OperationDependencies): Promise<string> {
   const [mode, ...args] = argv;
   const common = ['confirm-account','confirm-database','confirm-worker','confirm-origin'];
@@ -172,6 +195,7 @@ export async function runProduction(argv: string[], dependencies: OperationDepen
   const target = dependencies.load();
   if (mode === 'check') return 'Konfigurasi lokal valid; resource remote belum diverifikasi.';
   if (mode === 'dryrun') {
+    await requireProductionAssets(dependencies.build);
     const result = await dependencies.run(['deploy','--dry-run','--autoconfig=false']);
     if (result.status !== 0) fail('Dry-run gagal; output mentah disembunyikan.');
     return 'Dry-run lokal berhasil; bukan validasi produksi.';
@@ -179,6 +203,8 @@ export async function runProduction(argv: string[], dependencies: OperationDepen
   confirmTarget(target, flags);
   const username = mode === 'bootstrap' ? normalizeUsername(flags.get('username')) : null;
   if (mode === 'bootstrap' && username === null) fail('Username ADMIN pertama wajib valid.');
+  // Fail before even read-only remote inventory if the release assets cannot be rebuilt.
+  if (mode === 'deploy') await requireProductionAssets(dependencies.build);
   await verifyResources(target, dependencies.run);
   if (mode === 'verify') return 'Account serta ID/nama D1 dan KV cocok; endpoint/CPU/canary belum diverifikasi.';
   if (mode === 'deploy') {
@@ -192,6 +218,8 @@ export async function runProduction(argv: string[], dependencies: OperationDepen
     return 'Migrasi selesai; verifikasi skema/FK dan backup tetap tanggung jawab operator.';
   }
   const password = await dependencies.password();
+  // Reject the explicitly reserved UAT credential, without introducing a global password policy.
+  if (password === 'password') fail('Password development tidak boleh digunakan untuk bootstrap production.');
   const sql = buildBootstrapSql(randomUUID(), randomUUID(), username!, await hashPassword(password,100000));
   await bootstrapAdmin(sql, dependencies.sql, dependencies.notice);
   return `ADMIN pertama dan audit terkonfirmasi; user_id=${sql.id}; audit_id=${sql.auditId}.`;
@@ -207,7 +235,7 @@ if (isMain) {
       await prepareProductionConfig();
       process.stdout.write('Konfigurasi operator dibuat dengan placeholder tidak valid; isi hanya metadata yang disetujui.\n');
     } else {
-      const result = await runProduction(process.argv.slice(2), { run: runWrangler, load: loadProductionConfig, password: readPassword,
+      const result = await runProduction(process.argv.slice(2), { run: runWrangler, build: buildProductionAssets, load: loadProductionConfig, password: readPassword,
         domain: (target,flags) => verifyDomain(target, process.env.CLOUDFLARE_API_TOKEN,fetch,flags), sql: sql => executeRemoteSql(sql, runWrangler), notice: message => process.stderr.write(`${message}\n`) });
       process.stdout.write(`${result}\n`);
     }

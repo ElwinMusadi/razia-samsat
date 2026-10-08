@@ -15,7 +15,7 @@ function harness() {
   const put = vi.fn(async (path: string, response: Response) => { entries.set(path, response.clone()); });
   const match = vi.fn(async (path: string) => entries.get(path)?.clone());
   const cache = { put, match };
-  const caches = { open: vi.fn(async () => cache), keys: vi.fn(async () => ['razia-samsat-public-v0', 'razia-samsat-public-v1', 'unrelated-cache']), delete: vi.fn(async () => true) };
+  const caches = { open: vi.fn(async () => cache), keys: vi.fn(async () => ['razia-samsat-public-v0', 'razia-samsat-public-v1', 'razia-samsat-public-v2', 'unrelated-cache']), delete: vi.fn(async () => true) };
   const fetch = vi.fn(async (input: string | FetchRequest, _options?: RequestInit) => {
     const path = new URL(typeof input === 'string' ? input : input.url).pathname;
     return new Response(path === '/offline' ? advisory : 'public static bytes', { headers: { 'Content-Type': `${assets.get(path)}; charset=utf-8` } });
@@ -56,7 +56,7 @@ describe('public service worker privacy boundary', () => {
   });
   it('cleans only older application caches without claiming or skipping waiting', async () => {
     const h = harness(); await h.lifecycle('activate');
-    expect(h.caches.delete.mock.calls).toEqual([['razia-samsat-public-v0']]);
+    expect(h.caches.delete.mock.calls).toEqual([['razia-samsat-public-v0'], ['razia-samsat-public-v1']]);
     expect(h.claim).not.toHaveBeenCalled(); expect(h.skipWaiting).not.toHaveBeenCalled();
   });
   const bypass = ['/api', '/api/auth/me', '/api/auth/me?input=synthetic', '/api/vehicle-lookups', '/api/admin/users', '/%61pi/auth/me', '/api%2fauth/me', '/offline?input=synthetic', '/icons/icon-192.png?x=1', '/login?input=synthetic', '/unknown', '/history/not-a-uuid', '/assets/index-synthetic.js', 'https://other.example/login'];
@@ -108,7 +108,7 @@ describe('public service worker privacy boundary', () => {
 describe('installable public artifacts', () => {
   it('declares Indonesian standalone login entry and actual non-maskable PNG icons', async () => {
     const manifest = JSON.parse(await readFile(new URL('../public/manifest.webmanifest', import.meta.url), 'utf8'));
-    expect(manifest).toMatchObject({ id: '/', lang: 'id', start_url: '/login', scope: '/', display: 'standalone', theme_color: '#fafaf9', background_color: '#fafaf9' });
+    expect(manifest).toMatchObject({ id: '/', lang: 'id', start_url: '/login', scope: '/', display: 'standalone', theme_color: '#F7F6F2', background_color: '#F7F6F2' });
     expect(manifest.name).toBe('Razia SAMSAT Kota Kupang'); expect(manifest.short_name).toBe('Razia SAMSAT');
     expect(manifest.icons).toHaveLength(2);
     const sharp = createRequire(import.meta.url)('sharp');

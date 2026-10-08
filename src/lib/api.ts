@@ -275,7 +275,8 @@ function rejecting<T>(operation: () => Promise<T>): Promise<T> {
   try { return operation(); } catch (error) { return Promise.reject(error); }
 }
 export const isAbort = (error: unknown) => error instanceof DOMException && error.name === 'AbortError';
-export const errorText = (error: unknown) => error instanceof ApiError ? `${error.message}${error.requestId ? ` (ID permintaan: ${error.requestId})` : ''}` : 'Terjadi kesalahan. Coba lagi.';
+// Request IDs remain available on ApiError for internal diagnostics, never in rendered copy.
+export const errorText = (error: unknown) => error instanceof ApiError ? error.message : 'Terjadi kesalahan. Coba lagi.';
 export function formatWita(seconds: number): string {
   return `${new Intl.DateTimeFormat('id-ID', { timeZone: 'Asia/Makassar', dateStyle: 'medium', timeStyle: 'short', hourCycle: 'h23' }).format(new Date(seconds * 1000))} WITA`;
 }

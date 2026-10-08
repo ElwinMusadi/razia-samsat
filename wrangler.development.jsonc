@@ -1,0 +1,13 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "razia-samsat-development",
+  "main": "worker/dev-index.ts",
+  "compatibility_date": "2026-10-07",
+  "workers_dev": false,
+  "preview_urls": false,
+  "assets": { "directory": "./dist", "binding": "ASSETS", "not_found_handling": "single-page-application", "run_worker_first": true },
+  "d1_databases": [{ "binding": "DB", "database_name": "razia-samsat-uat-db", "database_id": "00000000-0000-0000-0000-000000000001", "migrations_dir": "migrations", "remote": false }],
+  "kv_namespaces": [{ "binding": "VEHICLE_CACHE", "id": "00000000000000000000000000000001", "remote": false }],
+  "vars": { "APP_ENV": "development", "PASSWORD_PBKDF2_ITERATIONS": "100000", "SESSION_TTL_SECONDS": "43200", "RETENTION_POLICY": "UNSET" },
+  "observability": { "enabled": false, "logs": { "enabled": false, "invocation_logs": false }, "traces": { "enabled": false } }
+}

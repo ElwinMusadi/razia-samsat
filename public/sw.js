@@ -1,6 +1,6 @@
 // Public advisory assets only. Bump this version whenever an allowlisted asset changes.
 const CACHE_PREFIX = 'razia-samsat-public-';
-const CACHE_NAME = `${CACHE_PREFIX}v1`;
+const CACHE_NAME = `${CACHE_PREFIX}v2`;
 const PUBLIC_ASSETS = new Map([
   ['/offline', 'text/html'],
   ['/offline.css', 'text/css'],

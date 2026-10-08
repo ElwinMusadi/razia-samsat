@@ -25,6 +25,10 @@
   Cache-Control: no-cache
   Content-Type: text/css; charset=utf-8
 
-/icons/*
+/icons/icon-192.png
+  Cache-Control: no-cache
+  Content-Type: image/png
+
+/icons/icon-512.png
   Cache-Control: no-cache
   Content-Type: image/png
