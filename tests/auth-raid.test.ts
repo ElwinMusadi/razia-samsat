@@ -128,7 +128,7 @@ describe('login', () => {
     expect((await login('synthetic.admin')).status).toBe(200);
   });
   it.each([
-    ['iterations above workerd limit', { PASSWORD_PBKDF2_ITERATIONS: '100001' }], ['iterations below minimum', { PASSWORD_PBKDF2_ITERATIONS: '999' }],
+    ['iterations above workerd limit', { PASSWORD_PBKDF2_ITERATIONS: '100001' }], ['iterations below minimum', { PASSWORD_PBKDF2_ITERATIONS: '9' }],
     ['non-numeric iterations', { PASSWORD_PBKDF2_ITERATIONS: 'abc' }], ['zero TTL', { SESSION_TTL_SECONDS: '0' }],
     ['TTL above 400 days', { SESSION_TTL_SECONDS: '34560001' }], ['missing TTL', { SESSION_TTL_SECONDS: '' }],
   ])('fails closed with 500 on invalid config: %s', async (_name, override) => {

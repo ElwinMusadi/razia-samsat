@@ -6,10 +6,10 @@ import { constants } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { hashPassword, parsePasswordHash } from '../shared/password.ts';
+import { hashPassword, isAcceptablePassword, parsePasswordHash } from '../shared/password.ts';
 import { normalizeUsername } from '../shared/username.ts';
 import { assertUuid, parseFlags, PROJECT_ROOT, readPassword } from './lib.ts';
-import { confirmTarget, loadProductionConfig, object, PRODUCTION_CONFIG, ProductionError, validId, verifyInventory, type ProductionTarget } from './production-config.ts';
+import { confirmTarget, EXPECTED_ZONE_NAME, loadProductionConfig, object, PRODUCTION_CONFIG, PRODUCTION_PASSWORD_ITERATIONS, ProductionError, validId, verifyInventory, type ProductionTarget } from './production-config.ts';
 
 export type CliResult = { status: number | null; stdout: string; stderr: string };
 export type CliRunner = (args: string[]) => Promise<CliResult>;
@@ -111,7 +111,7 @@ export async function verifyDomain(target: ProductionTarget, token: string | und
   };
   const zone = object((await get(`/zones/${target.zone}`)).result);
   const account = object(zone.account);
-  if (zone.id !== target.zone || account.id !== target.account || zone.status !== 'active' || typeof zone.name !== 'string' || !(target.hostname === zone.name || target.hostname.endsWith(`.${zone.name}`))) fail('Zone aktif/account/hostname tidak cocok.');
+  if (zone.id !== target.zone || account.id !== target.account || zone.status !== 'active' || zone.name !== EXPECTED_ZONE_NAME || !(target.hostname === zone.name || target.hostname.endsWith(`.${zone.name}`))) fail('Zone aktif/account/hostname tidak cocok.');
   const domains = inventoryRows(await get(`/accounts/${target.account}/workers/domains`));
   const matches = domains.filter(domain => domain.hostname === target.hostname);
   if (matches.length > 1 || (matches.length === 1 && (matches[0].service !== target.worker || matches[0].zone_id !== target.zone))) fail('Custom domain dimiliki target lain atau metadata ambigu.');
@@ -134,10 +134,10 @@ export async function verifyDomain(target: ProductionTarget, token: string | und
 
 function sqlText(value: string): string { return `'${value.replaceAll("'", "''")}'`; }
 export type BootstrapSql = { id: string; auditId: string; triggerName: string; create: string; insert: string; drop: string; check: string };
-export function buildBootstrapSql(id: string, auditId: string, rawUsername: string, passwordHash: string): BootstrapSql {
+export function buildBootstrapSql(id: string, auditId: string, rawUsername: string, passwordHash: string, passwordIterations: number): BootstrapSql {
   assertUuid(id); assertUuid(auditId);
   const username = normalizeUsername(rawUsername);
-  if (!username || parsePasswordHash(passwordHash)?.iterations !== 100000) fail('Username atau hash bootstrap tidak valid.');
+  if (!username || passwordIterations !== PRODUCTION_PASSWORD_ITERATIONS || parsePasswordHash(passwordHash)?.iterations !== passwordIterations) fail('Username, kebijakan iterasi atau hash bootstrap tidak valid.');
   const triggerName = `production_bootstrap_${id.replaceAll('-', '')}`;
   const create = `CREATE TRIGGER ${triggerName} AFTER INSERT ON users
 WHEN NEW.id = ${sqlText(id)} AND NEW.username = ${sqlText(username)} AND NEW.role = 'ADMIN' AND NEW.is_active = 1 AND (SELECT COUNT(*) FROM users) = 1
@@ -203,6 +203,7 @@ export async function runProduction(argv: string[], dependencies: OperationDepen
   confirmTarget(target, flags);
   const username = mode === 'bootstrap' ? normalizeUsername(flags.get('username')) : null;
   if (mode === 'bootstrap' && username === null) fail('Username ADMIN pertama wajib valid.');
+  if (mode === 'bootstrap' && target.passwordIterations !== PRODUCTION_PASSWORD_ITERATIONS) fail('Kebijakan iterasi bootstrap production tidak cocok.');
   // Fail before even read-only remote inventory if the release assets cannot be rebuilt.
   if (mode === 'deploy') await requireProductionAssets(dependencies.build);
   await verifyResources(target, dependencies.run);
@@ -218,9 +219,9 @@ export async function runProduction(argv: string[], dependencies: OperationDepen
     return 'Migrasi selesai; verifikasi skema/FK dan backup tetap tanggung jawab operator.';
   }
   const password = await dependencies.password();
-  // Reject the explicitly reserved UAT credential, without introducing a global password policy.
-  if (password === 'password') fail('Password development tidak boleh digunakan untuk bootstrap production.');
-  const sql = buildBootstrapSql(randomUUID(), randomUUID(), username!, await hashPassword(password,100000));
+  // Operator input follows the existing validation; never import or reuse development seed credentials.
+  if (!isAcceptablePassword(password)) fail('Password bootstrap tidak valid.');
+  const sql = buildBootstrapSql(randomUUID(), randomUUID(), username!, await hashPassword(password,target.passwordIterations), target.passwordIterations);
   await bootstrapAdmin(sql, dependencies.sql, dependencies.notice);
   return `ADMIN pertama dan audit terkonfirmasi; user_id=${sql.id}; audit_id=${sql.auditId}.`;
 }

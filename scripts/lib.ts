@@ -78,7 +78,7 @@ export async function resolveIterations(flag: string | undefined): Promise<numbe
     source = (rawConfig.vars as Record<string, unknown> | undefined)?.PASSWORD_PBKDF2_ITERATIONS;
   }
   const iterations = parseIterationsConfig(source);
-  if (iterations === null) throw new UsageError('PBKDF2 iterations must be an integer in 1000..100000');
+  if (iterations === null) throw new UsageError('PBKDF2 iterations must be a canonical integer in 10..100000');
   return iterations;
 }
 

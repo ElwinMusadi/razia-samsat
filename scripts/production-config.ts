@@ -1,13 +1,18 @@
 // Operator-only production configuration. Runtime Env and local configuration remain unchanged.
 import { join, resolve } from 'node:path';
 import { experimental_readRawConfig } from 'wrangler';
+import { parseIterationsConfig } from '../shared/password.ts';
 import { PROJECT_ROOT } from './lib.ts';
 
 export const PRODUCTION_CONFIG = join(PROJECT_ROOT, 'wrangler.production.jsonc');
 export const EXPECTED_ACCOUNT = '04b8b2073be2f1aa21fc6489e0db36f6';
-export const EXPECTED_WORKER = 'razia-samsat-production';
-export const EXPECTED_DATABASE = 'razia-samsat-production-db';
-export const EXPECTED_NAMESPACE = 'razia-samsat-production-vehicle-cache';
+export const EXPECTED_WORKER = 'razia-samsat';
+export const EXPECTED_DATABASE = 'razia-samsat-db';
+export const EXPECTED_NAMESPACE = 'razia-samsat-vehicle-cache';
+export const EXPECTED_HOSTNAME = 'tilang.uptdpenda-kupang.web.id';
+export const EXPECTED_ZONE_NAME = 'uptdpenda-kupang.web.id';
+// Final user-approved policy; this low count is not an offline password-defense recommendation.
+export const PRODUCTION_PASSWORD_ITERATIONS = 10;
 export class ProductionError extends Error {}
 function fail(message: string): never { throw new ProductionError(message); }
 export function object(value: unknown): Record<string, unknown> {
@@ -24,7 +29,7 @@ function single(value: unknown): Record<string, unknown> {
 export function validId(value: unknown, uuid = false): value is string {
   return typeof value === 'string' && (uuid ? /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/ : /^[0-9a-f]{32}$/).test(value) && !/^0[-0]*$/.test(value) && value !== '00000000000000000000000000000001';
 }
-export type ProductionTarget = { account: string; worker: string; database: string; namespace: string; hostname: string; origin: string; zone: string };
+export type ProductionTarget = { account: string; worker: string; database: string; namespace: string; hostname: string; origin: string; zone: string; passwordIterations: number };
 
 /** A deliberately narrow policy, not a general Wrangler schema validator. Unknown fields fail closed. */
 export function validateProductionConfig(input: unknown, configPath = PRODUCTION_CONFIG): ProductionTarget {
@@ -41,15 +46,16 @@ export function validateProductionConfig(input: unknown, configPath = PRODUCTION
   if (kv.binding !== 'VEHICLE_CACHE' || !validId(kv.id) || ('remote' in kv && kv.remote !== true)) fail('Binding KV production tidak valid; placeholder/local ditolak.');
   if (db.database_id.replaceAll('-', '') === kv.id || kv.id === config.account_id) fail('ID resource production bertabrakan.');
   const vars = object(config.vars); keys(vars, ['PASSWORD_PBKDF2_ITERATIONS','SESSION_TTL_SECONDS','RETENTION_POLICY']);
-  if (vars.PASSWORD_PBKDF2_ITERATIONS !== '100000' || vars.SESSION_TTL_SECONDS !== '43200' || vars.RETENTION_POLICY !== 'UNSET') fail('Baseline production wajib tepat 100000/43200/UNSET.');
+  const passwordIterations = parseIterationsConfig(vars.PASSWORD_PBKDF2_ITERATIONS);
+  if (vars.PASSWORD_PBKDF2_ITERATIONS !== String(PRODUCTION_PASSWORD_ITERATIONS) || passwordIterations !== PRODUCTION_PASSWORD_ITERATIONS || vars.SESSION_TTL_SECONDS !== '43200' || vars.RETENTION_POLICY !== 'UNSET') fail('Baseline production wajib tepat 10/43200/UNSET.');
   const observability = object(config.observability); keys(observability, ['enabled','logs','traces']);
   const logs = object(observability.logs); keys(logs, ['enabled','invocation_logs']);
   const traces = object(observability.traces); keys(traces, ['enabled']);
   if (typeof observability.enabled !== 'boolean' || logs.enabled !== observability.enabled || logs.invocation_logs !== false || traces.enabled !== false) fail('Observability hanya console aman; invocation logs dan traces dilarang.');
   const route = single(config.routes); keys(route, ['pattern','zone_id','custom_domain']);
   const hostname = route.pattern;
-  if (typeof hostname !== 'string' || hostname.length > 253 || !/^(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$/.test(hostname) || /\.(invalid|test|example|localhost)$/.test(hostname) || /(?:^|\.)example\.(com|net|org)$/.test(hostname) || hostname.endsWith('.workers.dev') || route.custom_domain !== true || !validId(route.zone_id)) fail('Satu custom domain nyata dan zone_id wajib dipilih; placeholder ditolak.');
-  return { account: config.account_id, worker: EXPECTED_WORKER, database: db.database_id, namespace: kv.id, hostname, origin: `https://${hostname}`, zone: route.zone_id };
+  if (hostname !== EXPECTED_HOSTNAME || route.custom_domain !== true || !validId(route.zone_id)) fail('Custom domain wajib cocok dengan target FINAL dan zone_id aktual; placeholder ditolak.');
+  return { account: config.account_id, worker: EXPECTED_WORKER, database: db.database_id, namespace: kv.id, hostname, origin: `https://${hostname}`, zone: route.zone_id, passwordIterations };
 }
 
 export function loadProductionConfig(): ProductionTarget {

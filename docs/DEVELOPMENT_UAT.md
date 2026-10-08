@@ -27,7 +27,7 @@ Cookie opaque HttpOnly/Secure/SameSite=Strict tetap sesuai aplikasi. Browser Chr
 | `elwinbessiesura` | `password` | `ADMIN` |
 | `yusuf.adoe` | `password` | `OFFICER` |
 
-ADMIN juga dapat menjalankan alur petugas sesuai otorisasi existing; tidak ada role gabungan baru. OFFICER tetap satu sesi aktif dan ADMIN multi-session. Password ini secara eksplisit diizinkan user untuk seed/docs lokal saja, tidak berada dalam client atau Worker produksi, dan ditolak oleh bootstrap operator produksi. Hash memakai PBKDF2-SHA256100000 dengan salt acak; TTL43200 tetap.
+ADMIN juga dapat menjalankan alur petugas sesuai otorisasi existing; tidak ada role gabungan baru. OFFICER tetap satu sesi aktif dan ADMIN multi-session. Credential seed ini hanya berasal dari mekanisme lokal, tidak berada dalam client atau Worker produksi dan tidak diimpor otomatis ke produksi. Bootstrap produksi menerima credential operator melalui stdin dengan kebijakan final produksi terpisah; jangan menggunakan seed development untuk bootstrap produksi. Hash development tetap PBKDF2-SHA256100000 dengan salt acak; TTL43200 tetap.
 
 Lokasi baseline: **UAT — Titik Pemeriksaan**. Jalur tetap teks bebas sesuai kontrak produk. Tidak dibuat raid/history/sesi login otomatis; lakukan login dan buka sesi melalui UI asli.
 

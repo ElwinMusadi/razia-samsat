@@ -4,13 +4,13 @@ import { join } from 'node:path';
 import type { Miniflare } from 'miniflare';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { experimental_readRawConfig } from 'wrangler';
-import { hashPassword, verifyPassword } from '../shared/password';
+import { hashPassword, parsePasswordHash, verifyPassword } from '../shared/password';
 import { PROJECT_ROOT } from '../scripts/lib';
-import { confirmTarget, EXPECTED_ACCOUNT, EXPECTED_DATABASE, EXPECTED_NAMESPACE, EXPECTED_WORKER, PRODUCTION_CONFIG, validateProductionConfig, verifyInventory } from '../scripts/production-config';
+import { confirmTarget, EXPECTED_ACCOUNT, EXPECTED_DATABASE, EXPECTED_HOSTNAME, EXPECTED_NAMESPACE, EXPECTED_WORKER, EXPECTED_ZONE_NAME, PRODUCTION_CONFIG, validateProductionConfig, verifyInventory } from '../scripts/production-config';
 import { bootstrapAdmin, buildBootstrapSql, buildProductionAssets, EMPTY_USERS_SQL, executeRemoteSql, runProduction, verifyDomain, verifyWorker, type CliResult, type OperationDependencies, type SqlRunner } from '../scripts/production';
 import { resetTestD1, startMigratedD1, type TestD1 } from './helpers/miniflare';
 
-// Synthetic identifiers and hostnames are test-only, never operator inventory.
+// Synthetic identifiers are test-only, never operator inventory. Names/hostname follow the final target.
 const DB_ID = '11111111-1111-4111-8111-111111111111';
 const USER_ID = '22222222-2222-4222-8222-222222222222';
 const AUDIT_ID = '33333333-3333-4333-8333-333333333333';
@@ -20,13 +20,13 @@ const DNS_ID = 'c'.repeat(32);
 const deployment = (id = DEPLOYMENT_ID, version = VERSION_ID, created = '2026-10-08T01:00:00Z') => ({ id,created_on:created,versions:[{version_id:version,percentage:100}] });
 const domainFlags = () => new Map([['confirm-hostname-review',`https://${HOST}`]]);
 const KV_ID = 'a'.repeat(32), ZONE_ID = 'b'.repeat(32);
-const HOST = 'synthetic.razia-domain.net';
+const HOST = EXPECTED_HOSTNAME;
 const config = () => ({ $schema: 'node_modules/wrangler/config-schema.json', name: EXPECTED_WORKER, account_id: EXPECTED_ACCOUNT, main: 'worker/index.ts', compatibility_date: '2026-10-07', workers_dev: false, preview_urls: false,
   routes: [{ pattern: HOST, zone_id: ZONE_ID, custom_domain: true }],
   assets: { directory: './dist', binding: 'ASSETS', not_found_handling: 'single-page-application', run_worker_first: ['/api','/api/*'] },
   d1_databases: [{ binding: 'DB', database_name: EXPECTED_DATABASE, database_id: DB_ID, migrations_dir: 'migrations' }],
   kv_namespaces: [{ binding: 'VEHICLE_CACHE', id: KV_ID }],
-  vars: { PASSWORD_PBKDF2_ITERATIONS: '100000', SESSION_TTL_SECONDS: '43200', RETENTION_POLICY: 'UNSET' },
+  vars: { PASSWORD_PBKDF2_ITERATIONS: '10', SESSION_TTL_SECONDS: '43200', RETENTION_POLICY: 'UNSET' },
   observability: { enabled: true, logs: { enabled: true, invocation_logs: false }, traces: { enabled: false } } });
 const target = validateProductionConfig(config());
 const flags = () => new Map([['confirm-account',target.account],['confirm-worker',target.worker],['confirm-database',target.database],['confirm-origin',target.origin]]);
@@ -34,17 +34,19 @@ const argvFlags = () => [...flags()].flatMap(([key,value]) => [`--${key}`,value]
 const inventory = () => ({ whoami: { loggedIn: true, accounts: [{id:EXPECTED_ACCOUNT,name:'Synthetic'}] }, databases: [{ uuid: DB_ID,name:EXPECTED_DATABASE }], namespaces: [{id:KV_ID,title:EXPECTED_NAMESPACE}] });
 const result = (value: unknown): CliResult => ({ status:0,stdout:JSON.stringify(value),stderr:'' });
 
-describe('production strict local configuration', () => {
-  it('accepts exact baseline with root-relative existing entrypoint/assets/migrations', () => {
-    expect(target).toEqual({account:EXPECTED_ACCOUNT,worker:EXPECTED_WORKER,database:DB_ID,namespace:KV_ID,hostname:HOST,origin:`https://${HOST}`,zone:ZONE_ID});
+ describe('production strict local configuration', () => {
+  it('accepts exact final baseline with root-relative existing entrypoint/assets/migrations', () => {
+    expect(target).toEqual({account:EXPECTED_ACCOUNT,worker:EXPECTED_WORKER,database:DB_ID,namespace:KV_ID,hostname:HOST,origin:`https://${HOST}`,zone:ZONE_ID,passwordIterations:10});
     expect(() => validateProductionConfig(config(),join(PROJECT_ROOT,'other/wrangler.production.jsonc'))).toThrow();
   });
-  it('reads checked JSONC using installed Wrangler and rejects intentionally invalid placeholders', () => {
+  it('reads checked JSONC using installed Wrangler and rejects intentionally invalid resource placeholders', () => {
     const {rawConfig} = experimental_readRawConfig({config:join(PROJECT_ROOT,'wrangler.production.example.jsonc')});
     expect(() => validateProductionConfig(rawConfig)).toThrow();
+    expect(rawConfig.name).toBe(EXPECTED_WORKER); expect(rawConfig.account_id).toBe(EXPECTED_ACCOUNT);
+    expect(rawConfig.vars?.PASSWORD_PBKDF2_ITERATIONS).toBe('10');
   });
   it.each([
-    ['account_id','0'.repeat(32)], ['account_id','c'.repeat(32)], ['name','another-worker'], ['main','../worker/index.ts'], ['workers_dev',true], ['preview_urls',true], ['compatibility_date','2026-10-08'], ['env',{}], ['services',[]], ['build',{command:'evil'}], ['unsafe',{}], ['secrets',{}], ['limits',{cpu_ms:100}], ['triggers',{crons:['* * * * *']}], ['route','somewhere/*'],
+    ['account_id','0'.repeat(32)], ['account_id','c'.repeat(32)], ['name','another-worker'], ['name','razia-samsat-production'], ['main','../worker/index.ts'], ['workers_dev',true], ['preview_urls',true], ['compatibility_date','2026-10-08'], ['env',{}], ['services',[]], ['build',{command:'evil'}], ['unsafe',{}], ['secrets',{}], ['limits',{cpu_ms:100}], ['triggers',{crons:['* * * * *']}], ['route','somewhere/*'],
   ])('rejects changed/unknown top-level %s', (key,value) => { expect(() => validateProductionConfig({...config(),[key]:value})).toThrow(); });
   it.each(['d1_databases','kv_namespaces','routes'])('rejects duplicate/missing %s', key => {
     const value = config()[key as 'routes'];
@@ -61,9 +63,9 @@ describe('production strict local configuration', () => {
     const wrong=config(); wrong.d1_databases[0].database_name='unrelated'; expect(() => validateProductionConfig(wrong)).toThrow();
   });
   it.each(['PASSWORD_PBKDF2_ITERATIONS','SESSION_TTL_SECONDS','RETENTION_POLICY'])('requires exact %s not minimum', key => {
-    for (const value of ['100001','99999','43201','43200 ',100000,'30d']) expect(() => validateProductionConfig({...config(),vars:{...config().vars,[key]:value}})).toThrow();
+    for (const value of ['0','9','11','1000','100000','100001','99999','43201','43200 ',10,100000,'30d']) expect(() => validateProductionConfig({...config(),vars:{...config().vars,[key]:value}})).toThrow();
   });
-  it.each(['app.invalid','app.test','app.example','example.com','app.workers.dev','https://app.net','app.net/*','app.net:443','localhost','APP.NET'])('rejects placeholder/unsafe route %s', pattern => { const value=config(); value.routes[0].pattern=pattern; expect(() => validateProductionConfig(value)).toThrow(); });
+  it.each(['app.invalid','app.test','app.example','example.com','app.workers.dev','https://app.net','app.net/*','app.net:443','localhost','APP.NET','synthetic.razia-domain.net',EXPECTED_ZONE_NAME,`${HOST}.other.net`])('rejects placeholder/unsafe/non-final route %s', pattern => { const value=config(); value.routes[0].pattern=pattern; expect(() => validateProductionConfig(value)).toThrow(); });
   it('rejects unsafe telemetry and asset routing', () => {
     const traces=config(); traces.observability.traces.enabled=true; expect(() => validateProductionConfig(traces)).toThrow();
     const invocation=config(); invocation.observability.logs.invocation_logs=true; expect(() => validateProductionConfig(invocation)).toThrow();
@@ -95,7 +97,7 @@ describe('production strict local configuration', () => {
   });
 });
 
-describe('deterministic production asset build', () => {
+ describe('deterministic production asset build', () => {
   it('uses installed typecheck and Vite commands with production mode overriding inherited/dotenv markers', async () => {
     const environment={...process.env,VITE_APP_MODE:'development',NODE_ENV:'development',SYNTHETIC_PARENT:'kept'};
     const original={...environment};
@@ -120,17 +122,31 @@ describe('deterministic production asset build', () => {
   });
 });
 
-describe('operator command boundaries with injected CLI, not remote success claims', () => {
+ describe('operator command boundaries with injected CLI, not remote success claims', () => {
   function dependencies() {
     const calls: string[][]=[]; const inv=inventory(); const events:string[]=[];
     const deps:OperationDependencies={ build:async()=>{events.push('build');}, load:()=>target, run:async args=>{calls.push(args); events.push(args.join(' ')); if(args[0]==='whoami') return result(inv.whoami); if(args[0]==='d1' && args[1]==='list') return result(inv.databases); if(args[0]==='kv') return result(inv.namespaces); if(args[0]==='deployments') return result([deployment()]); return result([]);},password:async()=>{throw new Error('not expected');},domain:async()=>{},sql:async()=>{throw new Error('not expected');},notice:()=>{} };
     return {deps,calls,events};
   }
-  it('rejects the reserved UAT password before any production SQL', async () => {
-    const {deps}=dependencies(); deps.password=async()=> 'password';
+  it.each(['x','Synthetic-operator-input'])('accepts independently supplied acceptable stdin input without a literal blacklist %#', async password => {
+    const {deps}=dependencies(); deps.password=async()=>password;
+    deps.sql=execute;
+    const message=await runProduction(['bootstrap',...argvFlags(),'--username','synthetic.operator'],deps);
+    expect(message).toContain('ADMIN pertama dan audit terkonfirmasi'); expect(message).not.toContain(password);
+    const stored=await db.prepare('SELECT password_hash FROM users').first<string>('password_hash');
+    expect(parsePasswordHash(stored)?.iterations).toBe(target.passwordIterations);
+    expect((await verifyPassword(password,stored!,target.passwordIterations)).ok).toBe(true);
+  });
+  it.each(['','x'.repeat(1025),'\u00e9'.repeat(513)])('rejects invalid operator password before any production SQL %#', async password => {
+    const {deps}=dependencies(); deps.password=async()=>password;
     let writes=0; deps.sql=async()=>{writes++; return [];};
-    await expect(runProduction(['bootstrap',...argvFlags(),'--username','synthetic.operator'],deps)).rejects.toThrow('Password development');
+    await expect(runProduction(['bootstrap',...argvFlags(),'--username','synthetic.operator'],deps)).rejects.toThrow('Password bootstrap tidak valid');
     expect(writes).toBe(0);
+  });
+  it('rejects a mismatched target iteration policy before inventory or password input', async () => {
+    const {deps,calls}=dependencies(); deps.load=()=>({...target,passwordIterations:100000});
+    await expect(runProduction(['bootstrap',...argvFlags(),'--username','synthetic.operator'],deps)).rejects.toThrow('Kebijakan iterasi');
+    expect(calls).toEqual([]);
   });
   it('check never builds and dryrun rebuilds before bundling without remote inventory/write', async () => {
     const {deps,calls,events}=dependencies(); await runProduction(['check'],deps); expect(calls).toEqual([]); expect(events).toEqual([]);
@@ -190,7 +206,7 @@ describe('operator command boundaries with injected CLI, not remote success clai
     await expect(executeRemoteSql(sql,async args=>{path=args[args.indexOf('--file')+1]; expect(args).toEqual(['d1','execute','DB','--remote','--file',path,'--json','--yes']); expect(args.join(' ')).not.toContain(sql); expect(await readFile(path,'utf8')).toBe(sql); return {status:1,stdout:sql,stderr:sql};})).rejects.toThrow('output mentah');
     await expect(readFile(path)).rejects.toThrow();
   });
-  function domainRequest(options: { dns?: Record<string,unknown>[]; domains?: Record<string,unknown>[]; info?: Record<string,unknown> | null; routes?: Record<string,unknown>[] } = {}): typeof fetch {
+  function domainRequest(options: { dns?: Record<string,unknown>[]; domains?: Record<string,unknown>[]; info?: Record<string,unknown> | null; routes?: Record<string,unknown>[]; zoneName?: string } = {}): typeof fetch {
     const dns=options.dns??[];
     return async input=>{
       const url=new URL(String(input));
@@ -200,7 +216,7 @@ describe('operator command boundaries with injected CLI, not remote success clai
         payload={success:true,result:dns,...(options.info===null ? {} : {result_info:options.info??{page:1,per_page:100,count:dns.length,total_count:dns.length,total_pages:1}})};
       } else if(url.pathname.endsWith('/workers/routes')) payload={success:true,result:options.routes??[]};
       else if(url.pathname.endsWith('/workers/domains')) payload={success:true,result:options.domains??[]};
-      else payload={success:true,result:{id:ZONE_ID,status:'active',name:'razia-domain.net',account:{id:EXPECTED_ACCOUNT}}};
+      else payload={success:true,result:{id:ZONE_ID,status:'active',name:options.zoneName??EXPECTED_ZONE_NAME,account:{id:EXPECTED_ACCOUNT}}};
       return new Response(JSON.stringify(payload),{status:200});
     };
   }
@@ -208,6 +224,9 @@ describe('operator command boundaries with injected CLI, not remote success clai
     await expect(verifyDomain(target,undefined,async()=>{throw new Error('must not fetch');})).rejects.toThrow();
     await expect(verifyDomain(target,'Synthetic-token',domainRequest(),domainFlags())).resolves.toBeUndefined();
     await expect(verifyDomain(target,'Synthetic-token',domainRequest({domains:[{hostname:HOST,service:'unrelated',zone_id:ZONE_ID}]}),domainFlags())).rejects.toThrow();
+  });
+  it.each(['web.id','kupang.web.id',HOST])('rejects non-final zone name %s even when hostname is within it', async zoneName => {
+    await expect(verifyDomain(target,'Synthetic-token',domainRequest({zoneName}),domainFlags())).rejects.toThrow('Zone aktif');
   });
   it.each(['A','AAAA','CNAME','MX'])('new/unbound hostname refuses existing DNS %s even with arbitrary confirmation before deploy', async type => {
     const {deps,calls}=dependencies();
@@ -233,51 +252,56 @@ describe('operator command boundaries with injected CLI, not remote success clai
     await expect(verifyDomain(target,'Synthetic-token',domainRequest({domains:[{...domains[0],zone_id:KV_ID}]}),domainFlags())).rejects.toThrow();
     await expect(verifyDomain(target,'Synthetic-token',domainRequest(),new Map())).rejects.toThrow();
   });
-  it.each([`https://${HOST}/*`,'*.razia-domain.net/*','*/*'])('rejects active route covering hostname %s', async pattern => {
+  it.each([`https://${HOST}/*`,`*.${EXPECTED_ZONE_NAME}/*`,'*/*'])('rejects active route covering hostname %s', async pattern => {
     await expect(verifyDomain(target,'Synthetic-token',domainRequest({routes:[{pattern,script:'unrelated-worker'}]}),domainFlags())).rejects.toThrow('Route Worker aktif');
   });
 });
 
 let mf:Miniflare, db:TestD1, passwordHash:string;
-beforeAll(async()=>{ ({mf,db}=await startMigratedD1()); passwordHash=await hashPassword('Synthetic-bootstrap',100000); });
+beforeAll(async()=>{ ({mf,db}=await startMigratedD1()); passwordHash=await hashPassword('Synthetic-bootstrap',target.passwordIterations); });
 afterAll(async()=>{await mf?.dispose();});
 beforeEach(async()=>{if(db) await resetTestD1(db);});
 const execute:SqlRunner=async sql=>[await db.prepare(sql).all()];
-describe('first ADMIN actual local D1 with all three migrations', () => {
-  it('normalizes canonical username, validates hash and escapes SQL values', () => {
-    const sql=buildBootstrapSql(USER_ID,AUDIT_ID,' Synthetic.Admin ',passwordHash); expect(sql.insert).toContain("'synthetic.admin'"); expect(sql.insert).toContain('WHERE NOT EXISTS (SELECT 1 FROM users)'); expect(sql.create).toContain(`WHEN NEW.id = '${USER_ID}'`);
-    expect(()=>buildBootstrapSql(USER_ID,AUDIT_ID,"injection');--",passwordHash)).toThrow(); expect(()=>buildBootstrapSql(USER_ID,AUDIT_ID,'synthetic',passwordHash.replace('$100000$','$1000$'))).toThrow();
+const bootstrapSql=(id:string,auditId:string,username:string,hash=passwordHash) => buildBootstrapSql(id,auditId,username,hash,target.passwordIterations);
+ describe('first ADMIN actual local D1 with all three migrations', () => {
+  it('normalizes canonical username, validates exact configured hash and escapes SQL values', () => {
+    const sql=bootstrapSql(USER_ID,AUDIT_ID,' Synthetic.Admin '); expect(sql.insert).toContain("'synthetic.admin'"); expect(sql.insert).toContain('WHERE NOT EXISTS (SELECT 1 FROM users)'); expect(sql.create).toContain(`WHEN NEW.id = '${USER_ID}'`);
+    expect(()=>bootstrapSql(USER_ID,AUDIT_ID,"injection');--")).toThrow();
+    for(const count of ['0','9','11','010','1e1','10 ','1000','100000','100001']) expect(()=>bootstrapSql(USER_ID,AUDIT_ID,'synthetic',passwordHash.replace('$10$',`$${count}$`))).toThrow();
+    expect(()=>buildBootstrapSql(USER_ID,AUDIT_ID,'synthetic',passwordHash,100000)).toThrow();
   });
   it('empty DB creates exactly first active ADMIN and USER_CREATED audit atomically', async()=>{
-    const sql=buildBootstrapSql(USER_ID,AUDIT_ID,' Synthetic.Admin ',passwordHash); await bootstrapAdmin(sql,execute,()=>{});
+    const sql=bootstrapSql(USER_ID,AUDIT_ID,' Synthetic.Admin '); await bootstrapAdmin(sql,execute,()=>{});
     expect(await db.prepare('SELECT COUNT(*) AS n FROM users').first('n')).toBe(1); expect(await db.prepare('SELECT username,role,is_active FROM users').first()).toEqual({username:'synthetic.admin',role:'ADMIN',is_active:1});
     expect(await db.prepare('SELECT actor_user_id,action,target_user_id FROM admin_audit_logs').first()).toEqual({actor_user_id:USER_ID,action:'USER_CREATED',target_user_id:USER_ID});
-    expect((await verifyPassword('Synthetic-bootstrap',String(await db.prepare('SELECT password_hash FROM users').first('password_hash')))).ok).toBe(true);
+    const stored=await db.prepare('SELECT password_hash FROM users').first<string>('password_hash');
+    expect(parsePasswordHash(stored)?.iterations).toBe(target.passwordIterations);
+    expect((await verifyPassword('Synthetic-bootstrap',stored!)).ok).toBe(true);
     expect(await db.prepare('SELECT COUNT(*) AS n FROM sqlite_master WHERE name=?').bind(sql.triggerName).first('n')).toBe(0); expect((await db.prepare('PRAGMA foreign_key_check').all()).results).toEqual([]);
-    await expect(bootstrapAdmin(buildBootstrapSql(VERSION_ID,crypto.randomUUID(),'second',passwordHash),execute,()=>{})).rejects.toThrow('harus kosong'); expect(await db.prepare('SELECT COUNT(*) AS n FROM users').first('n')).toBe(1);
+    await expect(bootstrapAdmin(bootstrapSql(VERSION_ID,crypto.randomUUID(),'second'),execute,()=>{})).rejects.toThrow('harus kosong'); expect(await db.prepare('SELECT COUNT(*) AS n FROM users').first('n')).toBe(1);
   });
   it.each([0,1])('nonempty OFFICER table blocks bootstrap even is_active=%s', async active=>{
     await db.prepare("INSERT INTO users(id,username,password_hash,role,is_active) VALUES('officer','synthetic.officer','unused','OFFICER',?)").bind(active).run();
-    await expect(bootstrapAdmin(buildBootstrapSql(USER_ID,AUDIT_ID,'synthetic.admin',passwordHash),execute,()=>{})).rejects.toThrow('harus kosong'); expect(await db.prepare('SELECT COUNT(*) AS n FROM admin_audit_logs').first('n')).toBe(0);
+    await expect(bootstrapAdmin(bootstrapSql(USER_ID,AUDIT_ID,'synthetic.admin'),execute,()=>{})).rejects.toThrow('harus kosong'); expect(await db.prepare('SELECT COUNT(*) AS n FROM admin_audit_logs').first('n')).toBe(0);
   });
   it('two concurrent attempts insert only one ADMIN and one audit', async()=>{
-    const attempts=[buildBootstrapSql(USER_ID,AUDIT_ID,'synthetic.first',passwordHash),buildBootstrapSql(VERSION_ID,crypto.randomUUID(),'synthetic.second',passwordHash)];
+    const attempts=[bootstrapSql(USER_ID,AUDIT_ID,'synthetic.first'),bootstrapSql(VERSION_ID,crypto.randomUUID(),'synthetic.second')];
     const outcomes=await Promise.allSettled(attempts.map(sql=>bootstrapAdmin(sql,execute,()=>{}))); expect(outcomes.filter(outcome=>outcome.status==='fulfilled')).toHaveLength(1);
     expect(await db.prepare('SELECT COUNT(*) AS n FROM users').first('n')).toBe(1); expect(await db.prepare('SELECT COUNT(*) AS n FROM admin_audit_logs').first('n')).toBe(1);
   });
   it('audit failure rolls back the user INSERT and removes dedicated trigger', async()=>{
     await db.prepare("CREATE TRIGGER synthetic_audit_failure BEFORE INSERT ON admin_audit_logs BEGIN SELECT RAISE(ABORT,'synthetic audit failure'); END;").run();
-    const sql=buildBootstrapSql(USER_ID,AUDIT_ID,'synthetic.admin',passwordHash);
+    const sql=bootstrapSql(USER_ID,AUDIT_ID,'synthetic.admin');
     try { await expect(bootstrapAdmin(sql,execute,()=>{})).rejects.toThrow('synthetic audit failure'); expect(await db.prepare('SELECT COUNT(*) AS n FROM users').first('n')).toBe(0); expect(await db.prepare('SELECT COUNT(*) AS n FROM admin_audit_logs').first('n')).toBe(0); expect(await db.prepare('SELECT COUNT(*) AS n FROM sqlite_master WHERE name=?').bind(sql.triggerName).first('n')).toBe(0); }
     finally {await db.prepare('DROP TRIGGER synthetic_audit_failure').run();}
   });
   it('cleanup failure preserves committed user/audit and emits only safe nonce notice', async()=>{
-    const sql=buildBootstrapSql(USER_ID,AUDIT_ID,'synthetic.admin',passwordHash), notices:string[]=[];
+    const sql=bootstrapSql(USER_ID,AUDIT_ID,'synthetic.admin'), notices:string[]=[];
     try { await expect(bootstrapAdmin(sql,async query=>{if(query===sql.drop) throw new Error(`unsafe ${passwordHash}`); return execute(query);},message=>notices.push(message))).rejects.toThrow('pembersihan'); expect(notices).toHaveLength(1); expect(notices[0]).toContain(sql.triggerName); expect(notices[0]).not.toContain(passwordHash); expect(await db.prepare('SELECT COUNT(*) AS n FROM users').first('n')).toBe(1); }
     finally {await execute(sql.drop);}
   });
   it('restricted trigger does not audit any other UUID even first active ADMIN', async()=>{
-    const sql=buildBootstrapSql(USER_ID,AUDIT_ID,'synthetic.admin',passwordHash); await execute(sql.create);
+    const sql=bootstrapSql(USER_ID,AUDIT_ID,'synthetic.admin'); await execute(sql.create);
     try {await db.prepare("INSERT INTO users(id,username,password_hash,role) VALUES(?,'synthetic.other',?,'ADMIN')").bind(VERSION_ID,passwordHash).run(); expect(await db.prepare('SELECT COUNT(*) AS n FROM admin_audit_logs').first('n')).toBe(0);}
     finally {await execute(sql.drop);}
   });

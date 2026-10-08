@@ -3,7 +3,8 @@
 // so Node can run it through type stripping.
 
 export const PASSWORD_HASH_SCHEME = 'pbkdf2-sha256';
-export const PBKDF2_MIN_ITERATIONS = 1000;
+// Accept the user-approved production count without changing the development configuration.
+export const PBKDF2_MIN_ITERATIONS = 10;
 // workerd rejects PBKDF2 iteration counts above 100000; Node must not produce hashes workerd cannot verify.
 export const PBKDF2_MAX_ITERATIONS = 100000;
 export const PASSWORD_MAX_BYTES = 1024;
@@ -11,7 +12,7 @@ const SALT_BYTES = 16;
 const HASH_BYTES = 32;
 const STORED_HASH_MAX_LENGTH = 128;
 const BASE64URL_ALPHABET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_';
-// Fixed dummy material keeps unknown-user work comparable to a real verification.
+// Fixed dummy material keeps unknown-user work comparable to a configured verification.
 const DUMMY_SALT = 'cmF6aWEtZHVtbXktc2FsdA';
 const encoder = new TextEncoder();
 
@@ -25,9 +26,9 @@ export function isValidIterations(value: unknown): value is number {
 /** Parses a configured iteration count (string var or number). Returns null when invalid. */
 export function parseIterationsConfig(value: unknown): number | null {
   if (typeof value === 'number') return isValidIterations(value) ? value : null;
-  if (typeof value !== 'string' || !/^[1-9][0-9]{0,8}$/.test(value)) return null;
+  if (typeof value !== 'string' || !/^[1-9][0-9]{0,5}$/.test(value)) return null;
   const iterations = Number(value);
-  return isValidIterations(iterations) ? iterations : null;
+  return isValidIterations(iterations) && String(iterations) === value ? iterations : null;
 }
 
 export function passwordByteLength(password: string): number {
@@ -81,9 +82,9 @@ export function decodeBase64Url(text: string, expectedBytes: number): Uint8Array
 export function parsePasswordHash(stored: unknown): ParsedPasswordHash | null {
   if (typeof stored !== 'string' || stored.length > STORED_HASH_MAX_LENGTH) return null;
   const parts = stored.split('$');
-  if (parts.length !== 4 || parts[0] !== PASSWORD_HASH_SCHEME || !/^[1-9][0-9]{3,5}$/.test(parts[1])) return null;
+  if (parts.length !== 4 || parts[0] !== PASSWORD_HASH_SCHEME || !/^[1-9][0-9]{0,5}$/.test(parts[1])) return null;
   const iterations = Number(parts[1]);
-  if (!isValidIterations(iterations)) return null;
+  if (!isValidIterations(iterations) || String(iterations) !== parts[1]) return null;
   const salt = decodeBase64Url(parts[2], SALT_BYTES);
   const hash = decodeBase64Url(parts[3], HASH_BYTES);
   return salt && hash ? { iterations, salt, hash } : null;
@@ -121,7 +122,8 @@ export async function dummyVerifyPassword(password: string, iterations: number):
 
 /**
  * Verifies a password against a stored hash. Malformed hashes never verify; when `targetIterations`
- * is supplied, a dummy derivation keeps their cost comparable and `needsRehash` reports weaker hashes.
+ * is supplied, a dummy derivation uses that count. Only hashes below the target need rehash;
+ * a higher-count legacy hash is verified as stored and is never downgraded on login.
  */
 export async function verifyPassword(password: string, stored: string, targetIterations?: number): Promise<PasswordVerification> {
   if (targetIterations !== undefined && !isValidIterations(targetIterations)) throw new RangeError('Invalid PBKDF2 iteration count');

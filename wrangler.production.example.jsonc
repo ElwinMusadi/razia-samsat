@@ -1,17 +1,18 @@
 {
   "$schema": "node_modules/wrangler/config-schema.json",
-  // Intended names only. Resource IDs and hostname must come from approved operator inventory.
-  "name": "razia-samsat-production",
-  "account_id": "REPLACE_WITH_APPROVED_ACCOUNT_ID",
+  // Final approved metadata only. Resource and zone IDs remain invalid until verified operator inventory.
+  "name": "razia-samsat",
+  "account_id": "04b8b2073be2f1aa21fc6489e0db36f6",
   "main": "worker/index.ts",
   "compatibility_date": "2026-10-07",
   "workers_dev": false,
   "preview_urls": false,
-  "routes": [{ "pattern": "REPLACE_WITH_APPROVED_HOST.invalid", "zone_id": "REPLACE_WITH_APPROVED_ZONE_ID", "custom_domain": true }],
+  "routes": [{ "pattern": "tilang.uptdpenda-kupang.web.id", "zone_id": "REPLACE_WITH_APPROVED_ZONE_ID", "custom_domain": true }],
   "assets": { "directory": "./dist", "binding": "ASSETS", "not_found_handling": "single-page-application", "run_worker_first": ["/api", "/api/*"] },
-  "d1_databases": [{ "binding": "DB", "database_name": "razia-samsat-production-db", "database_id": "00000000-0000-0000-0000-000000000000", "migrations_dir": "migrations" }],
+  "d1_databases": [{ "binding": "DB", "database_name": "razia-samsat-db", "database_id": "00000000-0000-0000-0000-000000000000", "migrations_dir": "migrations" }],
   "kv_namespaces": [{ "binding": "VEHICLE_CACHE", "id": "00000000000000000000000000000000" }],
-  "vars": { "PASSWORD_PBKDF2_ITERATIONS": "100000", "SESSION_TTL_SECONDS": "43200", "RETENTION_POLICY": "UNSET" },
+  // User-approved security risk: 10 iterations are not sufficient for offline password defense.
+  "vars": { "PASSWORD_PBKDF2_ITERATIONS": "10", "SESSION_TTL_SECONDS": "43200", "RETENTION_POLICY": "UNSET" },
   // Safe console events only. Automatic invocation URLs and subrequest traces are not collected.
   "observability": { "enabled": true, "logs": { "enabled": true, "invocation_logs": false }, "traces": { "enabled": false } }
 }

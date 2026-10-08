@@ -1,10 +1,10 @@
-// Usage: npm run bootstrap:user -- --username <name> --role <ADMIN|OFFICER> [--iterations <1000..100000>]
+// Usage: npm run bootstrap:user -- --username <name> --role <ADMIN|OFFICER> [--iterations <10..100000>]
 // The password is read from stdin only (hidden prompt on a terminal, or piped). LOCAL D1 only.
 import { hashPassword } from '../shared/password.ts';
 import { normalizeUsername } from '../shared/username.ts';
 import { assertRole, buildCreateUserSql, executeLocalSql, parseFlags, readPassword, resolveIterations, runMain, UsageError } from './lib.ts';
 
-const USAGE = 'Usage: npm run bootstrap:user -- --username <name> --role <ADMIN|OFFICER> [--iterations <1000..100000>] (password via stdin)';
+const USAGE = 'Usage: npm run bootstrap:user -- --username <name> --role <ADMIN|OFFICER> [--iterations <10..100000>] (password via stdin)';
 
 await runMain(async () => {
   const flags = parseFlags(process.argv.slice(2), ['username', 'role', 'iterations']);
