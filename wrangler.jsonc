@@ -1,0 +1,20 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "razia-samsat-local", "main": "worker/index.ts", "compatibility_date": "2026-10-07",
+  "workers_dev": false, "preview_urls": false,
+  "assets": { "directory": "./dist", "binding": "ASSETS", "not_found_handling": "single-page-application", "run_worker_first": ["/api", "/api/*"] },
+  // LOCAL placeholders only. Replace after resource/plan/domain approval; do not deploy this config.
+  "d1_databases": [{ "binding": "DB", "database_name": "razia-samsat-LOCAL-PLACEHOLDER", "database_id": "00000000-0000-0000-0000-000000000000", "migrations_dir": "migrations", "remote": false }],
+  "kv_namespaces": [{ "binding": "VEHICLE_CACHE", "id": "00000000000000000000000000000000", "remote": false }],
+  "vars": {
+    "RETENTION_POLICY": "UNSET",
+    // LOCAL/PROVISIONAL, not a production decision. Production PBKDF2 iterations are UNRESOLVED until the
+    // Workers plan and measured login CPU are known. Runtime accepts 1000..100000 (workerd maximum) only.
+    "PASSWORD_PBKDF2_ITERATIONS": "100000",
+    // LOCAL/PROVISIONAL absolute session lifetime (12 hours). Business TTL is UNRESOLVED. Runtime accepts 1..34560000.
+    "SESSION_TTL_SECONDS": "43200"
+  },
+  // Automatic invocation URLs and subrequest traces may contain sensitive user input.
+  // Phase 5 must review privacy before enabling managed telemetry in production.
+  "observability": { "enabled": false, "logs": { "enabled": false, "invocation_logs": false }, "traces": { "enabled": false } }
+}

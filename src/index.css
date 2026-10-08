@@ -1,0 +1,17 @@
+@import "tailwindcss";
+:root { --background: #fafaf9; --foreground: #1c1917; --primary: #292524; --primary-foreground: #fafaf9; --accent: #e7e5e4; --accent-foreground: #1c1917; --input: #d6d3d1; --ring: #78716c; }
+@theme inline { --color-background: var(--background); --color-foreground: var(--foreground); --color-primary: var(--primary); --color-primary-foreground: var(--primary-foreground); --color-accent: var(--accent); --color-accent-foreground: var(--accent-foreground); --color-input: var(--input); --color-ring: var(--ring); }
+@layer base {
+  :root { color-scheme: light; }
+  body { @apply bg-background text-foreground; margin: 0; font-family: system-ui, sans-serif; }
+  input, select { @apply min-h-11 w-full rounded-md border border-input bg-background px-3 py-2 text-base text-foreground; }
+  input:focus-visible, select:focus-visible, a:focus-visible { @apply outline-2 outline-offset-2 outline-ring; }
+  input:disabled, select:disabled { opacity: 0.6; }
+  button:not(:disabled) { cursor: pointer; }
+}
+@layer components {
+  .page-layout { @apply mx-auto flex w-full max-w-lg flex-col gap-5 px-4 py-6; }
+  .field { @apply flex flex-col gap-2 font-medium; }
+  .panel { @apply rounded-md border border-input p-4; }
+  .error-message { @apply break-words rounded-md border border-input bg-accent p-3; }
+}
