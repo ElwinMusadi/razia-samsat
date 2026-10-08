@@ -4,7 +4,7 @@
 Aplikasi Razia Kendaraan SAMSAT Kota Kupang. Blueprint di `docs/AI Product Blueprint - Aplikasi Razia Kendaraan SAMSAT Kota Kupang.md` merupakan Product/Business Single Source of Truth, dengan keputusan user terbaru sebagai pengganti eksplisit bagian yang berubah.
 
 ## Current Phase
-PHASE 6 — Administration, User Management & Operational Governance COMPLETE — VALIDASI LOKAL SAJA (2026-10-08). Implementasi, seluruh gate applicable dan review keamanan PASS; audit Git/commit/push sedang difinalisasi. Phase 5 tetap implementasi fungsional lengkap dengan gate transport historis belum dinyatakan PASS. Tidak memulai Phase 7 atau deploy.
+PHASE 6 — Administration, User Management & Operational Governance COMPLETE — VALIDASI LOKAL SAJA (2026-10-08). Implementasi, seluruh gate applicable, review keamanan dan commit/push PASS. Phase 5 tetap implementasi fungsional lengkap dengan gate transport historis belum dinyatakan PASS. Tidak memulai Phase 7 atau deploy.
 
 ### Konteks Phase 6 dari user (2026-10-08)
 - Kontrak implementasi Phase6 sesudah review Architect GO (keputusan teknis AI Lead, bukan policy organisasi baru): list/detail/create/activate/deactivate/password/reset sesi user ADMIN-only; tanpa rename/role-update/hard-delete/audit-list/lokasiCRUD. Role ADMIN/OFFICER ditentukan saat create. Visibilitas operasional ADMIN memakai history existing.
@@ -84,6 +84,7 @@ Phase 6 tersedia dan semua gate lokal terbaru PASS, termasuk regresi gabungan 93
 - Finalisasi Git Phase6 saja; tidak ada pekerjaan fitur aktif. Catatan sesudahnya merupakan riwayat implementasi/validasi, bukan blocker Phase6 saat ini.
 
 ### Hasil Akhir Phase 6 (AI Lead, 2026-10-08)
+- Git: branch main, commit implementasi `79763a4dd75a19842d37ed9b27eabd88b549f40a`, pesan `feat(admin): implement user management and operational governance`; 80 files baseline sah melalui Phase6. Push `origin/main` berhasil diverifikasi `git ls-remote origin refs/heads/main` sama dengan hash commit. Dokumen user terpisah docs/PHASE5_LOCAL_TRANSPORT_ANALYSIS_2026-10-08.md tetap untracked, tidak dihapus/diubah/ikutcommit. Catatan hasil Git ini dibuat sesudah commit implementasi dan akan dipersistenkan sebagai commit status terpisah; tidak amend/rewrite riwayat.
 - Backend: list/detail/create/activate/deactivate/password ADMIN-only, list sesi dan revoke-all/revoke-specific; strict DTO/body/query, keyset default20/max50, CSRF dan exact-session/current-role SQL. Tidak role-update/rename/hard-delete/lokasiCRUD/audit-viewer/self-service reset/email recovery. Visibilitas operasional memakai history ADMIN global existing.
 - Migration `0003_admin.sql` diterapkan LOCAL: perluasan action audit, copy data historis sebelum actor guard, immutable UPDATE, FK RESTRICT tetap, index users_created_id. D5-01/D5-02/history/raid ownership tidak berubah. Mutasi dan audit satu transaksi, kegagalan audit rollback; no-op tidak membuat audit baru. Self-deactivation ditolak; race dua admin saling deactivation diuji tanpa menambah trigger yang merusak fixture lama.
 - Password reset merevoke seluruh sesi target, termasuk self. Revoke spesifik memeriksa target-user/session ownership. signed_out authoritative membersihkan cookie/auth UI. Hash/password/token tidak dikembalikan atau masuk audit/log. Verified-hash guard pada login menutup reset/deactivation saat PBKDF2; zero INSERT401 tanpa merotasi cookie sah dan role response dibaca dari DB terkini. Baseline100000/TTL43200 tetap, tanpa minimum password baru yang tidak disetujui.
@@ -464,7 +465,7 @@ Semua field immutable setelah INSERT. Record mengikuti retensi organisasi yang b
 - Edit backend sebelumnya melalui helper apply_patch lokal sementara; edit frontend melalui tools Write/Edit karena apply_patch tidak tersedia. Lockfile/runtime declarations/build output dihasilkan package tooling. Kedua proyek referensi tidak diubah; tidak ada extra Markdown atau real PII fixture.
 
 ## Next Step
-Finalisasi commit/push Phase6 sesudah audit staged diff; kemudian STOP, tunggu persetujuan sebelum Phase7. Phase5 gate historis tetap dicatat BLOCKED, bukan diperbaiki lewat perubahan produksi. Jangan deploy/provision atau investigasi kernel lanjutan pada fase ini.
+STOP sesudah Phase6 selesai lokal dan push terverifikasi; tunggu persetujuan sebelum Phase7. Phase5 gate historis tetap dicatat BLOCKED, bukan diperbaiki lewat perubahan produksi. Jangan deploy/provision atau investigasi kernel lanjutan pada fase ini.
 
 UNRESOLVED: transport local test runtime; CPU aktual Free dengan baseline password100000/TTL43200; idle timeout; minimum/complexity password policy; risiko brute-force (rate-limit sengaja tidak diminta); raid deactivation/auto-close; reset interim OFFICER; retensi user_sessions; IDs/domain produksi. Plan Free dan baseline sudah DIPUTUSKAN, bukan open selection.
 
