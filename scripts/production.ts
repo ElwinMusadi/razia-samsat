@@ -10,6 +10,7 @@ import { hashPassword, isAcceptablePassword, parsePasswordHash } from '../shared
 import { normalizeUsername } from '../shared/username.ts';
 import { assertUuid, parseFlags, PROJECT_ROOT, readPassword } from './lib.ts';
 import { confirmTarget, EXPECTED_ZONE_NAME, loadProductionConfig, object, PRODUCTION_CONFIG, PRODUCTION_PASSWORD_ITERATIONS, ProductionError, validId, verifyInventory, type ProductionTarget } from './production-config.ts';
+import { assertProductionMigrationTarget, migrateProduction } from './production-migrations.ts';
 
 export type CliResult = { status: number | null; stdout: string; stderr: string };
 export type CliRunner = (args: string[]) => Promise<CliResult>;
@@ -185,7 +186,7 @@ export async function executeRemoteSql(sql: string, run: CliRunner): Promise<unk
   } finally { await rm(directory, { recursive: true, force: true }); }
 }
 
-export type OperationDependencies = { run: CliRunner; build: () => Promise<void>; load: () => ProductionTarget; password: () => Promise<string>; domain: (target: ProductionTarget, flags: Map<string,string>) => Promise<void>; sql: SqlRunner; notice: (message: string) => void };
+export type OperationDependencies = { run: CliRunner; build: () => Promise<void>; load: () => ProductionTarget; password: () => Promise<string>; domain: (target: ProductionTarget, flags: Map<string,string>) => Promise<void>; sql: SqlRunner; notice: (message: string) => void; migrate?: (target: ProductionTarget, run: CliRunner, notice: (message: string) => void) => Promise<void> };
 export async function runProduction(argv: string[], dependencies: OperationDependencies): Promise<string> {
   const [mode, ...args] = argv;
   const common = ['confirm-account','confirm-database','confirm-worker','confirm-origin'];
@@ -201,6 +202,7 @@ export async function runProduction(argv: string[], dependencies: OperationDepen
     return 'Dry-run lokal berhasil; bukan validasi produksi.';
   }
   confirmTarget(target, flags);
+  if (mode === 'migrate') assertProductionMigrationTarget(target);
   const username = mode === 'bootstrap' ? normalizeUsername(flags.get('username')) : null;
   if (mode === 'bootstrap' && username === null) fail('Username ADMIN pertama wajib valid.');
   if (mode === 'bootstrap' && target.passwordIterations !== PRODUCTION_PASSWORD_ITERATIONS) fail('Kebijakan iterasi bootstrap production tidak cocok.');
@@ -215,8 +217,8 @@ export async function runProduction(argv: string[], dependencies: OperationDepen
     return 'Deployment selesai; canary dan CPU belum dinyatakan PASS.';
   }
   if (mode === 'migrate') {
-    if ((await dependencies.run(['d1','migrations','apply','DB','--remote'])).status !== 0) fail('Migrasi gagal; migrasi sebelumnya mungkin sudah diterapkan.');
-    return 'Migrasi selesai; verifikasi skema/FK dan backup tetap tanggung jawab operator.';
+    await (dependencies.migrate ?? migrateProduction)(target, dependencies.run, dependencies.notice);
+    return 'Migrasi file terkonfirmasi oleh metadata, skema, dan FK; bukan jalur completion CLI migrasi resmi vendor. Backup tetap tanggung jawab operator.';
   }
   const password = await dependencies.password();
   // Operator input follows the existing validation; never import or reuse development seed credentials.

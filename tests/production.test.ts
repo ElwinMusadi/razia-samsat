@@ -10,8 +10,8 @@ import { confirmTarget, EXPECTED_ACCOUNT, EXPECTED_DATABASE, EXPECTED_HOSTNAME, 
 import { bootstrapAdmin, buildBootstrapSql, buildProductionAssets, EMPTY_USERS_SQL, executeRemoteSql, runProduction, verifyDomain, verifyWorker, type CliResult, type OperationDependencies, type SqlRunner } from '../scripts/production';
 import { resetTestD1, startMigratedD1, type TestD1 } from './helpers/miniflare';
 
-// Synthetic identifiers are test-only, never operator inventory. Names/hostname follow the final target.
-const DB_ID = '11111111-1111-4111-8111-111111111111';
+// The final migration UUID is inert fixture metadata; all CLI/IO is injected, never operator inventory.
+const DB_ID = '6fd6706b-5e09-4b54-aef7-c49a82b38bd1';
 const USER_ID = '22222222-2222-4222-8222-222222222222';
 const AUDIT_ID = '33333333-3333-4333-8333-333333333333';
 const VERSION_ID = '44444444-4444-4444-8444-444444444444';
@@ -175,9 +175,21 @@ const result = (value: unknown): CliResult => ({ status:0,stdout:JSON.stringify(
     const {deps,calls}=dependencies(); const run=deps.run; deps.run=async args=>args[0]==='kv' ? result([]) : run(args);
     await expect(runProduction(['migrate',...argvFlags()],deps)).rejects.toThrow(); expect(calls.every(args=>!args.includes('--remote'))).toBe(true);
   });
-  it('migrate uses remote explicit DB after exactly read-only inventory', async () => {
-    const {deps,calls}=dependencies(); await runProduction(['migrate',...argvFlags()],deps); expect(calls).toEqual([['whoami','--json'],['d1','list','--json'],['kv','namespace','list'],['d1','migrations','apply','DB','--remote']]);
-  });
+   it('migrate delegates the controlled wrapper only after exactly read-only inventory', async () => {
+     const {deps,calls,events}=dependencies();
+     deps.migrate=async (verified,run,notice)=>{ expect(verified).toEqual(target); expect(run).toBe(deps.run); expect(notice).toBe(deps.notice); events.push('controlled-migrations'); };
+     const message=await runProduction(['migrate',...argvFlags()],deps);
+     expect(message).toContain('bukan jalur completion CLI migrasi resmi vendor');
+     expect(calls).toEqual([['whoami','--json'],['d1','list','--json'],['kv','namespace','list']]);
+     expect(events.at(-1)).toBe('controlled-migrations');
+   });
+   it('migrate rejects a different valid UUID before inventory or an injected wrapper', async () => {
+     const {deps,calls}=dependencies(); const other={...target,database:USER_ID}; deps.load=()=>other;
+     deps.migrate=async()=>{throw new Error('must not run');};
+     const args=[...flags()]; const confirmations=new Map(args); confirmations.set('confirm-database',USER_ID);
+     await expect(runProduction(['migrate',...[...confirmations].flatMap(([key,value])=>[`--${key}`,value])],deps)).rejects.toThrow('UUID produksi FINAL');
+     expect(calls).toEqual([]);
+   });
   it('existing Worker confirms active deployment/version, not latest upload or array order', async () => {
     const {deps,calls}=dependencies(); const run=deps.run;
     deps.run=async args=>args[0]==='deployments' ? result([deployment(),deployment(USER_ID,USER_ID,'2026-10-07T01:00:00Z')]) : run(args);
