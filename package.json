@@ -23,6 +23,7 @@
     "production:verify": "node scripts/production.ts verify",
     "production:migrate": "node scripts/production.ts migrate",
     "production:deploy": "node scripts/production.ts deploy",
+    "production:initial": "node scripts/production-initial.ts",
     "production:bootstrap": "node scripts/production.ts bootstrap"
   },
   "dependencies": {

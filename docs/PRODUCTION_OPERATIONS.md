@@ -97,6 +97,27 @@ Rerun wrapper sesudah verifikasi tidak mengimpor file lagi. Tidak ada auto-retry
 
 Status migration: **PASS**, bukan operational go-live atau production readiness. Fase berikutnya harus diotorisasi terpisah. Jika terjadi timeout pada migration masa depan, lakukan snapshot read-only metadata/schema/FK dan STOP bila ambigu; jangan langsung import ulang atau restore. Restore production destructive tetap membutuhkan persetujuan terpisah. Tabel overview di awal dokumen adalah sejarah persiapan; hasil aktual migration pada bagian ini menggantikan klaim historis bahwa D1 belum dibuat/applied.
 
+## Tooling objek awal P9-E.1 — hanya operator, belum dieksekusi pada produksi
+
+Command baru terikat pada ADMIN `elwin.bessiesura`, OFFICER `yusuf.adoe`, dan lokasi `Jln. El Tari - DPRD Provinsi NTT`. Tidak menerima username, role, lokasi atau password bebas melalui argument. Tidak ada endpoint bootstrap publik atau password default. Kebijakan hash memakai konfigurasi produksi yang divalidasi tepat10; TTL/session/cache tidak berubah.
+
+Preflight tanpa mutasi dan tanpa password:
+
+    npm run production:initial -- preflight --confirm-account 04b8b2073be2f1aa21fc6489e0db36f6 --confirm-database 6fd6706b-5e09-4b54-aef7-c49a82b38bd1 --confirm-worker razia-samsat --confirm-origin https://tilang.uptdpenda-kupang.web.id
+
+Setelah mendapat otorisasi eksekusi bootstrap terpisah, jalankan sendiri pada terminal interaktif:
+
+    npm run production:initial -- apply --confirm-account 04b8b2073be2f1aa21fc6489e0db36f6 --confirm-database 6fd6706b-5e09-4b54-aef7-c49a82b38bd1 --confirm-worker razia-samsat --confirm-origin https://tilang.uptdpenda-kupang.web.id --confirm-initial-objects initial-accounts-and-location
+
+- Target ditampilkan sebelum input atau mutasi; inventory account/resource dan konfigurasi harus cocok. Schema/metadata migration dan FK diperiksa melalui helper read-only, bukan menjalankan migration atau inisialisasi metadata.
+- Operator memasukkan dua password **baru khusus produksi**, tidak dari development atau chat. Terminal tanpa echo meminta konfirmasi masing-masing; semua input untuk akun yang masih pending dikumpulkan dan divalidasi sebelum mutasi. Password kedua akun harus berbeda jika keduanya baru. Pencegahan reuse historis tetap tanggung jawab operator karena tidak ada password-history policy. Input argv/env/fileplaintext atau mode non-TTY tidak dipakai untuk password baru; jangan mengotomasi apply dengan pipe secret dari chat.
+- Urutan ADMIN → OFFICER → lokasi. Masing-masing objek dan audit dibuat dalam satu file ingestion yang atomisitasnya sudah dibuktikan pada scratch; tidak menyisipkan `BEGIN/COMMIT` manual. Keseluruhan tiga objek **bukan satu transaksi**. Verifikasi ulang schema, snapshot, identitas/hash baru dan audit dilakukan setelah setiap objek. SQL sementara hanya menyimpan hash, bukan plaintext; log Wrangler ditahan dan diisolasi oleh runner existing.
+- Rerun hanya melewati objek existing dengan identity/role/status/hash canonical dan audit penciptaan yang sesuai. Tidak reset password, update role, reactivate, membuat duplicate lokasi, atau backfill audit. Schema parsial, akun tidak dikenal, inactive/corrupt hash, lokasi berbeda/duplikat/inactive, audit hilang/asing/duplikat, serta sessions/raid/history operasional menolak bootstrap awal.
+- Mutation failure atau timeout menghentikan alur. Ringkasan publik menyebut `created`, `verified-existing`, `pending`, atau `unknown` tanpa hash/password/SQL. `created` pada failure hanya diberikan jika nonce objek, hash yang diharapkan dan audit cocok; objek hasil operator lain tidak diatribusikan ke invocation ini. Periksa state melalui preflight sebelum resume sadar, tidak auto retry/delete/repair.
+- Satu operator pada satu waktu. Snapshot bukan lock Cloudflare dan file mode0600 tidak menggantikan ACL Windows. Plaintext hanya sementara dalam memori proses; pengosongan reference tidak menjamin immediate garbage collection. Jangan mencetak private snapshot yang berisi hash.
+
+Validasi implementation P9-E.1 menggunakan SQLite isolated dengan schema resmi dan scratch remote `razia-samsat-migration-design-09ada67d4273` (`90de726a-9d67-46ee-a7d4-9ee3852a8a78`). Preflight no-op, per-OFFICER audit failure rollback, resume, configured hash10 verification, dua akun/lokasi active, tiga audit, tanpa sessions/raid/history dan rerun unchanged terbukti. Scratch sudah dihapus dan ketidakhadirannya diverifikasi. Percobaan scratch sebelumnya mengembalikan exit gagal pada creation walau ID resource telah dibuat; resource tersebut juga dihapus, bukan diabaikan. **Tidak ada objek bootstrap dibuat pada produksi.** Hasil gate final dicatat di PROJECT_STATUS.md; keberhasilan tooling bukan otorisasi menjalankan apply.
+
 ## Canary terbatas dan keamanan
 
 Canary hanya set NOPOL yang disetujui user untuk fase berikutnya, bukan contoh nyata historis, nomor buatan agen, enumerasi prefix, atau fixture synthetic yang dianggap kendaraan produksi. Corrective ini tidak melakukan canary atau menyimpan daftar NOPOL. Gunakan browser pada origin TLS yang disetujui. Catat metrics/status/request ID tanpa NOPOL, pemilik, raw payload, cookie, password, token, atau SQL hash. D5-01/D5-02 immutable normalhistory tetap; tidak menambah flag isolation/bypass/delete history.

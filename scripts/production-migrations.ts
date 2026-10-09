@@ -206,7 +206,10 @@ function resultRows(stdout: string, expected: number): Record<string,unknown>[][
     return entry.results as Record<string,unknown>[];
   });
 }
-function cliStore(database: string, run: CliRunner, guard: () => void, metadataIdentifier = database): MigrationStore {
+export function createProductionMigrationStore(database: string, run: import('./production.ts').CliRunner, guard: () => void): MigrationStore {
+  return cliStore(database, run, guard);
+}
+function cliStore(database: string, run: import('./production.ts').CliRunner, guard: () => void, metadataIdentifier = database): MigrationStore {
   const execute = async (args: string[]) => {
     guard();
     try { const result = await run(args); if (result.status !== 0) fail('Perintah migrasi Wrangler gagal; output mentah disembunyikan.'); return result; }
@@ -250,4 +253,12 @@ export function createScratchMigrationStore(target: ScratchTarget, run: CliRunne
   };
   guard();
   return cliStore(target.database, run, guard, target.databaseName);
+}
+
+export async function verifyAppliedMigrations(store: Pick<MigrationStore, 'readState'>, options: { directory?: string } = {}): Promise<void> {
+  const sources = await loadMigrationSources(options.directory);
+  const prefixes = expectedPrefixes(sources);
+  const state = await store.readState();
+  const count = statePrefix(state, sources, prefixes);
+  if (count !== sources.length) fail('Skema aplikasi belum selesai dimigrasi. Teramati prefix=' + count + ', sumber=' + sources.length + '.');
 }

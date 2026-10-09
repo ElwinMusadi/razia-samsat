@@ -134,11 +134,11 @@ async function readPipedStdin(): Promise<string> {
  * confirmation; piped stdin is read once with one trailing line ending removed. No normalization is applied.
  * The password policy (minimum length/complexity) is UNRESOLVED, so only non-empty and the byte cap apply.
  */
-export async function readPassword(): Promise<string> {
+export async function readPassword(label = 'Password'): Promise<string> {
   let password: string;
   if (process.stdin.isTTY) {
-    password = await readHiddenLine('Password: ');
-    if (password !== await readHiddenLine('Confirm password: ')) throw new UsageError('Passwords do not match');
+    password = await readHiddenLine(`${label}: `);
+    if (password !== await readHiddenLine(`Confirm ${label}: `)) throw new UsageError('Passwords do not match');
   } else {
     password = await readPipedStdin();
   }
