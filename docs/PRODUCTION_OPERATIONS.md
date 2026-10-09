@@ -87,6 +87,16 @@ Validasi desain parent memakai scratch `razia-samsat-migration-design-3f3dc3a2` 
 
 Validasi lokal akhir AI Lead: targeted **174/174 PASS** (6,21 detik); full regression **33 files/1213 tests PASS** (137,22 detik); typecheck/lint/build PASS; audit high0 vulnerabilities. Review independen READ-ONLY PASS WITH NOTES, tanpa Critical/High/Medium/Low tersisa setelah validasi kalender metadata diperketat. Batas satu operator, snapshot tanpa lock, metadata tanpa checksum historis, dan kebutuhan backup/review sumber tetap berlaku. API, Worker, SQL migrasi, dependency, serta konfigurasi produksi tidak diubah. Produksi terakhir diketahui masih0 applied/3 pending/0 tabel aplikasi dari fase sebelumnya; P9-D.3 tidak meng-query atau memutasi database produksi. Retry produksi memerlukan instruksi eksplisit fase berikutnya.
 
+## Hasil migration production P9-D.4 (2026-10-09)
+
+Target account `04b8b2073be2f1aa21fc6489e0db36f6`, database `razia-samsat-db` / `6fd6706b-5e09-4b54-aef7-c49a82b38bd1` diverifikasi ulang sebelum eksekusi. State awal0 applied/3 pending/0 tabel aplikasi, FK enabled dan bersih. Time Travel pra-eksekusi tersedia; export pra-migrasi tetap checksum yang sesuai. Rehearsal pemulihan P9-D.4B berhasil pada scratch, bukan bukti restore production telah dilakukan.
+
+Wrapper resmi dengan empat flag target menjalankan seluruh SQL asli. Metadata mencatat `0001_foundation.sql` pada01:11:05UTC, `0002_history.sql` pada01:11:13UTC, dan `0003_admin.sql` pada01:11:29UTC. Fingerprint independen sesuai sumber final: `3a983db9b4b5ff656cf9c1adf077801024018735f72a4bc4d7e32bb67deb8630`. Enam tabel aplikasi, sepuluh explicit indexes dan sembilan triggers terverifikasi. UNIQUE raid+nopol, immutable history/audit, composite ownership FK dan pagination DESC sesuai. FKcheck kosong dan semua tabel aplikasi masih0 rows.
+
+Rerun wrapper sesudah verifikasi tidak mengimpor file lagi. Tidak ada auto-retry, repair, perubahan SQL, bootstrap, data contoh, deployment, domain/DNS/TLS, secret, BPAD atau canary. Gate repository pada working tree saat itu:1217 tests/33 files PASS116,35s, typecheck/lint/build PASS, audit high0 vulnerabilities. Perubahan user existing tetap di luar commit hasil migration.
+
+Status migration: **PASS**, bukan operational go-live atau production readiness. Fase berikutnya harus diotorisasi terpisah. Jika terjadi timeout pada migration masa depan, lakukan snapshot read-only metadata/schema/FK dan STOP bila ambigu; jangan langsung import ulang atau restore. Restore production destructive tetap membutuhkan persetujuan terpisah. Tabel overview di awal dokumen adalah sejarah persiapan; hasil aktual migration pada bagian ini menggantikan klaim historis bahwa D1 belum dibuat/applied.
+
 ## Canary terbatas dan keamanan
 
 Canary hanya set NOPOL yang disetujui user untuk fase berikutnya, bukan contoh nyata historis, nomor buatan agen, enumerasi prefix, atau fixture synthetic yang dianggap kendaraan produksi. Corrective ini tidak melakukan canary atau menyimpan daftar NOPOL. Gunakan browser pada origin TLS yang disetujui. Catat metrics/status/request ID tanpa NOPOL, pemilik, raw payload, cookie, password, token, atau SQL hash. D5-01/D5-02 immutable normalhistory tetap; tidak menambah flag isolation/bypass/delete history.
