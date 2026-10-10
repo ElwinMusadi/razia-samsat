@@ -87,9 +87,19 @@ const result = (value: unknown): CliResult => ({ status:0,stdout:JSON.stringify(
     for (const namespaces of [[],[{id:KV_ID,title:'unrelated'}],[...good.namespaces,...good.namespaces]]) expect(() => verifyInventory(target,good.whoami,good.databases,namespaces)).toThrow();
     expect(() => verifyInventory(target,{loggedIn:false,accounts:good.whoami.accounts},good.databases,good.namespaces)).toThrow();
   });
-  it('ignored operator config and backups do not replace local scripts', async () => {
-    const ignored=await readFile(join(PROJECT_ROOT,'.gitignore'),'utf8'); expect(ignored).toContain('wrangler.production.jsonc'); expect(ignored).toContain('backups/');
-    const pkg=JSON.parse(await readFile(join(PROJECT_ROOT,'package.json'),'utf8')); expect(pkg.scripts['db:migrate:local']).toContain('--local'); expect(pkg.scripts['bootstrap:user']).toBe('node scripts/create-user.ts');
+  it('nonsecret production config may be tracked while private inputs and backups stay ignored and local scripts unchanged', async () => {
+    const ignored=await readFile(join(PROJECT_ROOT,'.gitignore'),'utf8');
+    const ignoreLines=ignored.split(/\r?\n/).map(line=>line.trim());
+    expect(ignoreLines).not.toContain('wrangler.production.jsonc');
+    expect(ignored).toContain('.env*');
+    expect(ignored).toContain('.dev.vars*');
+    expect(ignored).toContain('backups/');
+    const pkg=JSON.parse(await readFile(join(PROJECT_ROOT,'package.json'),'utf8'));
+    expect(pkg.scripts['db:migrate:local']).toContain('--local');
+    expect(pkg.scripts['bootstrap:user']).toBe('node scripts/create-user.ts');
+    expect(pkg.scripts['ci:build']).toBe('node scripts/ci-production.ts build');
+    expect(pkg.scripts['ci:deploy']).toBe('node scripts/ci-production.ts deploy');
+    expect(pkg.scripts['ci:deploy']).not.toContain('wrangler deploy');
   });
   it('CLI invalid arguments fail without config/network or sensitive argument echo', () => {
     const execution=spawnSync(process.execPath,[join(PROJECT_ROOT,'scripts/production.ts'),'deploy','--password','Sensitive-Synthetic'],{cwd:PROJECT_ROOT,encoding:'utf8'});

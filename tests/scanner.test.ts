@@ -186,7 +186,7 @@ describe('scanner shell and navigation', () => {
   });
   it('renders initial state with autofocus, input attributes, raid context and title', async () => {
     const input = await ready();
-    expect(document.activeElement).toBe(input);
+    await waitFor(() => expect(document.activeElement).toBe(input));
     expect(input.getAttribute('autocapitalize')).toBe('characters');
     expect(input.getAttribute('autocomplete')).toBe('off');
     expect(input.getAttribute('autocorrect')).toBe('off');

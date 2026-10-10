@@ -24,7 +24,10 @@
     "production:migrate": "node scripts/production.ts migrate",
     "production:deploy": "node scripts/production.ts deploy",
     "production:initial": "node scripts/production-initial.ts",
-    "production:bootstrap": "node scripts/production.ts bootstrap"
+    "production:bootstrap": "node scripts/production.ts bootstrap",
+    "ci:build": "node scripts/ci-production.ts build",
+    "ci:deploy": "node scripts/ci-production.ts deploy",
+    "ci:dryrun": "node scripts/ci-production.ts dryrun"
   },
   "dependencies": {
     "@fontsource/dm-serif-display": "5.3.0",

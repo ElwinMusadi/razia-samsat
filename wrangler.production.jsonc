@@ -1,0 +1,47 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "razia-samsat",
+  "account_id": "04b8b2073be2f1aa21fc6489e0db36f6",
+  "main": "worker/index.ts",
+  "compatibility_date": "2026-10-07",
+  "workers_dev": false,
+  "preview_urls": false,
+  "routes": [
+    {
+      "pattern": "tilang.uptdpenda-kupang.web.id",
+      "zone_id": "e937dc955107f12dae6cc95d6f84e2a0",
+      "custom_domain": true
+    }
+  ],
+  "assets": {
+    "directory": "./dist",
+    "binding": "ASSETS",
+    "not_found_handling": "single-page-application",
+    "run_worker_first": ["/api", "/api/*"]
+  },
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "razia-samsat-db",
+      "database_id": "6fd6706b-5e09-4b54-aef7-c49a82b38bd1",
+      "migrations_dir": "migrations"
+    }
+  ],
+  "kv_namespaces": [
+    {
+      "binding": "VEHICLE_CACHE",
+      "id": "c8ca3a5faf9c4922a6f3f88aaa7ddbb7"
+    }
+  ],
+  // User-approved security risk; development retains its separate configured baseline.
+  "vars": {
+    "RETENTION_POLICY": "UNSET",
+    "PASSWORD_PBKDF2_ITERATIONS": "10",
+    "SESSION_TTL_SECONDS": "43200"
+  },
+  "observability": {
+    "enabled": true,
+    "logs": { "enabled": true, "invocation_logs": false },
+    "traces": { "enabled": false }
+  }
+}

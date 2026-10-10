@@ -21,12 +21,14 @@ function json(result: CliResult): unknown {
 }
 
 /** Capture both streams and isolate Wrangler debug logs, which could include SQL or credentials. */
-export const runWrangler: CliRunner = async args => {
+export const runWrangler = async (args: string[], environment: NodeJS.ProcessEnv = process.env): Promise<CliResult> => {
+  // Capture before yielding so async log setup cannot change the validated CLI environment.
+  const env = { ...environment };
   const directory = await mkdtemp(join(tmpdir(), 'razia-production-cli-'));
   try {
     const result = spawnSync(process.execPath, [join(PROJECT_ROOT, 'node_modules/wrangler/bin/wrangler.js'), ...args, '--config', PRODUCTION_CONFIG], {
       cwd: PROJECT_ROOT, encoding: 'utf8', shell: false, stdio: ['ignore','pipe','pipe'], maxBuffer: 8 * 1024 * 1024,
-      env: { ...process.env, CLOUDFLARE_ACCOUNT_ID: '04b8b2073be2f1aa21fc6489e0db36f6', WRANGLER_SEND_METRICS: 'false', WRANGLER_HIDE_BANNER: 'true', WRANGLER_LOG_LEVEL: 'log', WRANGLER_LOG_SANITIZE: 'true', WRANGLER_LOG_PATH: join(directory, 'wrangler.log') },
+      env: { ...env, CLOUDFLARE_ACCOUNT_ID: '04b8b2073be2f1aa21fc6489e0db36f6', WRANGLER_SEND_METRICS: 'false', WRANGLER_HIDE_BANNER: 'true', WRANGLER_LOG_LEVEL: 'log', WRANGLER_LOG_SANITIZE: 'true', WRANGLER_LOG_PATH: join(directory, 'wrangler.log') },
     });
     return { status: result.status, stdout: result.stdout ?? '', stderr: result.stderr ?? '' };
   } finally { await rm(directory, { recursive: true, force: true }); }
@@ -64,7 +66,7 @@ export async function verifyResources(target: ProductionTarget, run: CliRunner):
 }
 
 /** Strict UTC timestamps with supported microsecond precision, without Date millisecond truncation. */
-function deploymentTimestamp(value: unknown): bigint {
+export function deploymentTimestamp(value: unknown): bigint {
   if (typeof value !== 'string') fail('Metadata deployment Worker tidak valid.');
   const match = /^(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2})(?:\.(\d{1,6}))?Z$/.exec(value);
   if (!match || match[0] !== value) fail('Metadata deployment Worker tidak valid.');
