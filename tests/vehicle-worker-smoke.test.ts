@@ -25,7 +25,7 @@ beforeAll(async () => {
   const result = spawnSync(process.execPath, [join(ROOT, 'node_modules', 'wrangler', 'bin', 'wrangler.js'), 'deploy', '--dry-run', '--outdir', outdir], { cwd: ROOT, encoding: 'utf8', env: { ...process.env, WRANGLER_SEND_METRICS: 'false', WRANGLER_HIDE_BANNER: 'true' } });
   if (result.status !== 0) throw new Error(`wrangler dry-run failed: ${result.stderr}`);
   // Intercept ALL outbound fetches: this test cannot contact live BPAD, even on a wrong URL.
-  ({ mf, db } = await startMigratedD1({ modules: true, scriptPath: join(outdir, 'index.js'), kvNamespaces: ['VEHICLE_CACHE'], bindings: { PASSWORD_PBKDF2_ITERATIONS: '100000', SESSION_TTL_SECONDS: '43200', RETENTION_POLICY: 'UNSET' }, outboundService: async request => {
+  ({ mf, db } = await startMigratedD1({ modules: true, modulesRoot: outdir, scriptPath: join(outdir, 'index.js'), kvNamespaces: ['VEHICLE_CACHE'], bindings: { PASSWORD_PBKDF2_ITERATIONS: '100000', SESSION_TTL_SECONDS: '43200', RETENTION_POLICY: 'UNSET' }, outboundService: async request => {
     providerCalls++;
     outboundRequests.push({ url: request.url, method: request.method, body: await request.text() });
     if (providerStatus !== 200) return new RuntimeResponse('FORBIDDEN_SENTINEL', { status: providerStatus });
@@ -38,7 +38,10 @@ beforeAll(async () => {
   await db.prepare("INSERT INTO locations(id,name) VALUES('location','Synthetic location')").run();
   await db.prepare("INSERT INTO raid_sessions(id,user_id,location_id,lane) VALUES('raid','user','location','A')").run();
 }, 180000);
-afterAll(async () => { await mf?.dispose(); if (outdir) await rm(outdir, { recursive: true, force: true }); });
+afterAll(async () => {
+  try { await mf?.dispose(); }
+  finally { if (outdir) await rm(outdir, { recursive: true, force: true }); }
+});
 
 it('production registration uses BPAD adapter and actual KV with WITA/no-store/allowlist, not browser graph', async () => {
   const live = await post({ nopol: 'dh 1234 zz' }); expect({ status: live.status, calls: providerCalls, requests: outboundRequests }).toMatchObject({ status: 200, calls: 1 });

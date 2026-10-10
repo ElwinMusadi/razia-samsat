@@ -2,12 +2,12 @@ import { useEffect, useRef, type HTMLAttributes, type ReactNode } from 'react';
 import { AlertCircle, Inbox, LoaderCircle } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
-export function PageHeader({ title, eyebrow, children, operational = false }: { title: ReactNode; eyebrow?: string; children?: ReactNode; operational?: boolean }) {
+export function PageHeader({ title, eyebrow, children, operational = false, focusHeading = true }: { title: ReactNode; eyebrow?: string; children?: ReactNode; operational?: boolean; focusHeading?: boolean }) {
   const ref = useRef<HTMLHeadingElement>(null);
-  useEffect(() => { ref.current?.focus(); }, []);
+  useEffect(() => { if (focusHeading) ref.current?.focus(); }, [focusHeading]);
   return <div className="page-header min-w-0">
     {eyebrow && <p className="eyebrow">{eyebrow}</p>}
-    <h1 ref={ref} tabIndex={-1} className={operational ? 'admin-heading' : 'page-heading'}>{title}</h1>
+    <h1 ref={focusHeading ? ref : undefined} tabIndex={focusHeading ? -1 : undefined} className={operational ? 'admin-heading' : 'page-heading'}>{title}</h1>
     {children && <div className="supporting">{children}</div>}
   </div>;
 }

@@ -63,6 +63,17 @@ export async function verifyResources(target: ProductionTarget, run: CliRunner):
   verifyInventory(target, whoami, databases, namespaces);
 }
 
+/** Strict UTC timestamps with supported microsecond precision, without Date millisecond truncation. */
+function deploymentTimestamp(value: unknown): bigint {
+  if (typeof value !== 'string') fail('Metadata deployment Worker tidak valid.');
+  const match = /^(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2})(?:\.(\d{1,6}))?Z$/.exec(value);
+  if (!match || match[0] !== value) fail('Metadata deployment Worker tidak valid.');
+  const canonicalSecond = `${match[1]}.000Z`;
+  const milliseconds = Date.parse(canonicalSecond);
+  if (!Number.isFinite(milliseconds) || new Date(milliseconds).toISOString() !== canonicalSecond) fail('Timestamp deployment Worker tidak valid.');
+  return BigInt(milliseconds) * 1000n + BigInt((match[2] ?? '').padEnd(6, '0'));
+}
+
 /** Review the currently active deployment, not a newer uploaded but undeployed version. */
 export async function verifyWorker(target: ProductionTarget, flags: Map<string,string>, run: CliRunner): Promise<void> {
   const result = await run(['deployments','list','--name',target.worker,'--json']);
@@ -74,11 +85,10 @@ export async function verifyWorker(target: ProductionTarget, flags: Map<string,s
   if (!Array.isArray(deployments) || deployments.length === 0 || flags.has('confirm-new-worker')) fail('Metadata deployment Worker kosong, tidak valid, atau konfirmasi bertentangan.');
   const rows = deployments.map(value => {
     const row = object(value);
-    if (!validId(row.id, true) || typeof row.created_on !== 'string' || !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,3})?Z$/.test(row.created_on)) fail('Metadata deployment Worker tidak valid.');
-    const created = Date.parse(row.created_on);
-    if (!Number.isFinite(created) || new Date(created).toISOString().slice(0,19) !== row.created_on.slice(0,19)) fail('Timestamp deployment Worker tidak valid.');
+    if (!validId(row.id, true)) fail('Metadata deployment Worker tidak valid.');
+    const created = deploymentTimestamp(row.created_on);
     return { row, created };
-  }).sort((a,b) => b.created - a.created);
+  }).sort((a,b) => a.created === b.created ? 0 : a.created > b.created ? -1 : 1);
   if (new Set(rows.map(value => value.row.id)).size !== rows.length || (rows.length > 1 && rows[0].created === rows[1].created)) fail('Deployment aktif ambigu; pemeriksaan operator diperlukan.');
   const current = rows[0].row;
   if (!Array.isArray(current.versions) || current.versions.length !== 1) fail('Deployment bertahap/multi-version tidak didukung helper.');
@@ -87,12 +97,18 @@ export async function verifyWorker(target: ProductionTarget, flags: Map<string,s
 }
 
 /** Reject truncated inventory rather than assuming a partial page proves absence. */
-function inventoryRows(payload: Record<string,unknown>, requirePagination = false): Record<string,unknown>[] {
+function inventoryRows(payload: Record<string,unknown>, requirePagination = false, optionalTotalPages = false): Record<string,unknown>[] {
   if (!Array.isArray(payload.result)) fail('Inventaris endpoint bukan array.');
   const rows = payload.result.map(object);
   if (requirePagination || payload.result_info !== undefined) {
+    if (!payload.result_info || typeof payload.result_info !== 'object' || Array.isArray(payload.result_info)) fail('Inventaris endpoint memiliki metadata pagination tidak valid.');
     const info = object(payload.result_info);
-    if (info.page !== 1 || !Number.isInteger(info.per_page) || Number(info.per_page) < 1 || Number(info.per_page) < rows.length || info.count !== rows.length || info.total_count !== rows.length || (info.total_pages !== 0 && info.total_pages !== 1) || (rows.length > 0 && info.total_pages !== 1)) fail('Inventaris endpoint terpotong atau pagination ambigu.');
+    // count describes the returned results; only total_count proves the unfiltered inventory is complete.
+    // List Worker Domains declares total_pages optional and has no documented page traversal parameters.
+    const terminalPage = info.total_pages === undefined && optionalTotalPages
+      ? true
+      : (info.total_pages === 0 || info.total_pages === 1) && (rows.length === 0 || info.total_pages === 1);
+    if (info.page !== 1 || !Number.isSafeInteger(info.per_page) || Number(info.per_page) < 1 || Number(info.per_page) < rows.length || !Number.isSafeInteger(info.count) || !Number.isSafeInteger(info.total_count) || info.count !== rows.length || info.total_count !== rows.length || !terminalPage) fail('Inventaris endpoint terpotong atau pagination ambigu.');
   }
   return rows;
 }
@@ -113,7 +129,7 @@ export async function verifyDomain(target: ProductionTarget, token: string | und
   const zone = object((await get(`/zones/${target.zone}`)).result);
   const account = object(zone.account);
   if (zone.id !== target.zone || account.id !== target.account || zone.status !== 'active' || zone.name !== EXPECTED_ZONE_NAME || !(target.hostname === zone.name || target.hostname.endsWith(`.${zone.name}`))) fail('Zone aktif/account/hostname tidak cocok.');
-  const domains = inventoryRows(await get(`/accounts/${target.account}/workers/domains`));
+  const domains = inventoryRows(await get(`/accounts/${target.account}/workers/domains`), false, true);
   const matches = domains.filter(domain => domain.hostname === target.hostname);
   if (matches.length > 1 || (matches.length === 1 && (matches[0].service !== target.worker || matches[0].zone_id !== target.zone))) fail('Custom domain dimiliki target lain atau metadata ambigu.');
   // Use the documented exact name filter; do not query record content or log DNS payloads.

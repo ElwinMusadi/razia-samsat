@@ -1,6 +1,6 @@
 import { CheckCircle2, CircleHelp, CircleX, SearchCheck, SearchX } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { formatCalendarDate, formatInstantWita, type VehicleFound, type VehicleLookupResult, type VehicleStatus as Status } from '@/lib/api';
+import { formatCalendarDate, type VehicleFound, type VehicleLookupResult, type VehicleStatus as Status } from '@/lib/api';
 
 /** Lookup outcome and vehicle status intentionally have separate prop domains. */
 export function LookupOutcomeBadge({ outcome }: { outcome: VehicleLookupResult['outcome'] }) {
@@ -34,11 +34,5 @@ export function VehicleResultCard({ result }: { result: VehicleFound }) {
       <div><dt>Tipe</dt><dd>{vehicle.type}</dd></div>
       <div><dt>Warna</dt><dd>{vehicle.color}</dd></div>
     </dl>
-    <div className="vehicle-metadata">
-      <p className="font-semibold">{result.source === 'LIVE' ? 'Data langsung' : 'Data cache (≤5 menit)'}</p>
-      <p>Diambil <time dateTime={result.fetched_at}>{formatInstantWita(result.fetched_at)}</time></p>
-      <p>Dievaluasi <time dateTime={result.evaluated_on}>{formatCalendarDate(result.evaluated_on)}</time> WITA</p>
-    </div>
-    <p className="supporting">Status adalah data administratif. Keputusan pemeriksaan tetap pada petugas.</p>
   </article>;
 }

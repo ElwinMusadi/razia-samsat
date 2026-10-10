@@ -17,8 +17,8 @@ function ErrorMessage({ children, id = 'operation-error' }: { children: ReactNod
   useEffect(() => { ref.current?.focus(); }, [children]);
   return <p id={id} ref={ref} role="alert" tabIndex={-1} className="error-message">{children}</p>;
 }
-function PageTitle({ children }: { children: ReactNode }) {
-  return <PageHeader title={children} />;
+function PageTitle({ children, focusHeading = true }: { children: ReactNode; focusHeading?: boolean }) {
+  return <PageHeader title={children} focusHeading={focusHeading} />;
 }
 function Login() {
   const { auth, login, loading, authError, retry, notice, busy } = useAuth();
@@ -51,7 +51,7 @@ function Login() {
   }
   return <main className="page-layout login-layout">
     <div className="login-brand"><p className="app-brand">SAMSAT <span className="font-normal tracking-normal">Kota Kupang</span></p><p className="login-product">Razia Kendaraan</p></div>
-    <PageTitle>Masuk</PageTitle>
+    <PageTitle focusHeading={false}>Masuk</PageTitle>
     <p className="supporting">Masuk untuk melanjutkan sesi razia milik Anda.</p>
     {notice && <p role="status">{notice}</p>}
     {loading && <p role="status">Memeriksa sesi…</p>}
@@ -79,6 +79,7 @@ function Home() {
 }
 function Shell({ children }: { children: ReactNode }) {
   const { auth, logout, busy, authError, retry } = useAuth();
+  const isScanner = useLocation().pathname === '/razia/scanner';
   const [error, setError] = useState('');
   const logoutPending = useRef(false);
   async function exit() {
@@ -87,8 +88,7 @@ function Shell({ children }: { children: ReactNode }) {
     try { await logout(); } catch (failure) { setError(errorText(failure)); }
     finally { logoutPending.current = false; }
   }
-  return <div className="page-layout operational-layout pb-[calc(6rem+env(safe-area-inset-bottom,0px))]">
-    <header className="app-header">
+  const header = <header className="app-header">
       <div className="app-header-row">
         <div className="brand-context">
           <p className="app-brand">SAMSAT <span className="sr-only">Kota Kupang</span></p>
@@ -106,10 +106,12 @@ function Shell({ children }: { children: ReactNode }) {
           <Button variant="outline" size="sm" className="logout-control" onClick={exit} disabled={busy} aria-label="Keluar" aria-describedby="logout-help"><LogOut aria-hidden="true" /></Button>
         </div>
       </div>
-    </header>
+    </header>;
+  return <div className="page-layout operational-layout pb-[calc(6rem+env(safe-area-inset-bottom,0px))]">
+    {!isScanner && header}
     {authError && <><ErrorMessage>{authError}</ErrorMessage><Button variant="outline" disabled={busy} onClick={retry}>Periksa sesi lagi</Button></>}
     {error && <ErrorMessage>{error}</ErrorMessage>}
-    <main className="min-w-0">{children}</main>
+    <main className="min-w-0">{children}{isScanner && <div className="scanner-session-controls" data-session-controls-footer="">{header}</div>}</main>
     {/* Equal-width 48px targets; content reserves 96px plus the same safe area. */}
     <nav aria-label="Navigasi utama" className="bottom-navigation fixed inset-x-0 bottom-0 z-20 border-t border-border bg-background pt-2">
       <div className="mx-auto flex w-full max-w-lg gap-2 px-4">

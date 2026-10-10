@@ -85,6 +85,8 @@
   .supporting { @apply text-sm text-secondary-foreground; }
   .operational-layout { gap: var(--space-4); padding-top: var(--space-3); }
   .app-header { @apply min-w-0 border-b border-border pb-2; }
+  .scanner-session-controls { margin-top: var(--space-4); }
+  .scanner-session-controls .account-panel { top: auto; bottom: calc(100% + var(--space-2)); }
   .app-header-row { @apply flex min-w-0 items-center justify-between gap-2; }
   .app-brand { @apply text-sm font-bold tracking-widest; }
   .brand-context { @apply flex min-w-0 flex-col gap-1; }
@@ -106,7 +108,7 @@
   .login-layout { min-height: 80svh; justify-content: center; }
   .login-brand { @apply flex flex-col gap-2 border-b border-border pb-6; }
   .login-product { font-family: var(--font-editorial); font-size: 40px; line-height: 1.08; letter-spacing: -0.02em; }
-  .scanner-search { @apply sticky top-0 z-10 -mx-4 flex flex-col gap-3 border-b border-border bg-background px-4 pb-4 pt-2; }
+  .scanner-search { @apply sticky top-0 z-10 -mx-4 flex flex-col gap-2 border-b border-border bg-background px-4 pb-2 pt-2; }
   .scanner-heading { @apply text-2xl font-bold tracking-tight; }
   .nopol-input { @apply min-h-16 pr-14 text-2xl font-bold uppercase tracking-wider; }
   .nopol-clear { @apply absolute inset-y-0 right-0 flex min-h-12 w-14 min-w-12 items-center justify-center rounded-md text-foreground hover:bg-accent; }
@@ -129,7 +131,6 @@
   .status-block { @apply flex flex-col gap-2; }
   .vehicle-facts { @apply grid grid-cols-1 gap-3; }
   .vehicle-facts dd { @apply font-semibold; }
-  .vehicle-metadata { @apply flex flex-col gap-1 border-t border-border pt-4 text-sm text-secondary-foreground; }
   .metric { @apply flex min-w-0 flex-col gap-2 rounded-md border border-border bg-card p-4; }
   .metric dd { @apply text-3xl font-bold tracking-tight; }
   .history-row { @apply flex min-w-0 flex-col gap-3 rounded-md border border-border bg-card p-4; }

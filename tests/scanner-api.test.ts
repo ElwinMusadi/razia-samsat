@@ -15,6 +15,16 @@ describe('vehicle lookup parser', () => {
     expect(parseVehicleLookup({ ...found, source: 'CACHE', vehicle: { ...vehicle, stnk_due_date: '2027-01-31', stnk_status: 'ACTIVE' } }, 'DH1234ZZ')).toMatchObject({ source: 'CACHE', vehicle: { stnk_status: 'ACTIVE' } });
     expect(parseVehicleLookup({ outcome: 'NOT_FOUND', request_id: 'req-nf' }, 'DH1234ZZ')).toEqual({ outcome: 'NOT_FOUND', request_id: 'req-nf' });
   });
+  it.each(['LIVE', 'CACHE'] as const)('retains %s metadata in the parser and request result despite its removal from scanner UI', async source => {
+    const body = { ...found, source };
+    expect(parseVehicleLookup(body, 'DH1234ZZ')).toEqual(body);
+    const fetcher = vi.fn<typeof fetch>().mockResolvedValue(json(body));
+    vi.stubGlobal('fetch', fetcher);
+    const parsed = await api.lookup('DH1234ZZ');
+    expect(parsed).toEqual(body);
+    expect(parsed).toMatchObject({ source, fetched_at: found.fetched_at, evaluated_on: found.evaluated_on, request_id: found.request_id });
+    expect(fetcher).toHaveBeenCalledTimes(1);
+  });
   it('projects only allowlisted fields and drops sensitive extras', () => {
     const parsed = parseVehicleLookup({ ...found, ...sensitive, raw: sensitive, vehicle: { ...vehicle, ...sensitive } }, 'DH1234ZZ');
     expect(parsed).toEqual(found);

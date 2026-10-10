@@ -213,12 +213,75 @@ const result = (value: unknown): CliResult => ({ status:0,stdout:JSON.stringify(
     await expect(verifyWorker(target,flags(),async()=>({status:1,stdout:'',stderr:'[code: 10007]'}))).rejects.toThrow();
     await expect(verifyWorker(target,confirmations,async()=>({status:1,stdout:'',stderr:'[code: 10007]'}))).resolves.toBeUndefined();
   });
+  it.each([
+    '2026-10-09T21:24:59Z',
+    '2026-10-09T21:24:59.4Z',
+    '2026-10-09T21:24:59.46Z',
+    '2026-10-09T21:24:59.469Z',
+    '2026-10-09T21:24:59.4697Z',
+    '2026-10-09T21:24:59.46977Z',
+    '2026-10-09T21:24:59.469775Z',
+    '2026-10-09T21:24:59.000000Z',
+    '2026-10-09T21:24:59.999999Z',
+    '2024-02-29T23:59:59.123456Z',
+    '2000-02-29T00:00:00.000001Z',
+  ])('accepts supported strict UTC deployment timestamp %s',async createdOn=>{
+    const confirmations=flags(); confirmations.set('confirm-version',VERSION_ID); confirmations.set('confirm-deployment',DEPLOYMENT_ID);
+    await expect(verifyWorker(target,confirmations,async()=>result([deployment(DEPLOYMENT_ID,VERSION_ID,createdOn)]))).resolves.toBeUndefined();
+  });
+  it.each([
+    '2026-10-09T21:24:59.4697750Z', '2026-10-09T21:24:59.123456789Z',
+    '2026-10-09T21:24:59.Z', '2026-10-09T21:24:59,469775Z',
+    '2026-10-09T21:24:59.abcdefZ', '2026-10-09T21:24:59.469775z',
+    '2026-10-09T21:24:59.469775+00:00', '2026-10-09T21:24:59+08:00',
+    '2026-10-09T21:24:59', '2026-10-09 21:24:59Z',
+    '2026-10-09T21:24:59.469775Z trailing', ' 2026-10-09T21:24:59Z',
+    '2026-10-09T21:24:59Z\n', '2026-02-29T21:24:59.469775Z',
+    '2024-02-30T21:24:59Z', '1900-02-29T21:24:59.001Z',
+    '2026-04-31T21:24:59.469775Z', '2026-00-09T21:24:59Z',
+    '2026-13-09T21:24:59Z', '2026-10-00T21:24:59Z',
+    '2026-10-32T21:24:59Z', '2026-10-09T24:00:00Z',
+    '2026-10-09T21:60:00Z', '2026-10-09T21:24:60Z',
+    '2026-10-09T1:24:59Z', '2026-10-09T21:4:59Z',
+  ])('rejects unsupported precision, malformed format or impossible calendar %s',async createdOn=>{
+    const confirmations=flags(); confirmations.set('confirm-version',VERSION_ID); confirmations.set('confirm-deployment',DEPLOYMENT_ID);
+    await expect(verifyWorker(target,confirmations,async()=>result([deployment(DEPLOYMENT_ID,VERSION_ID,createdOn)]))).rejects.toThrow();
+  });
+  it('orders distinct microseconds within the same millisecond and rejects mismatched confirmations',async()=>{
+    const newer=deployment(DEPLOYMENT_ID,VERSION_ID,'2026-10-09T21:24:59.469775Z');
+    const older=deployment(USER_ID,USER_ID,'2026-10-09T21:24:59.469774Z');
+    const confirmations=flags();confirmations.set('confirm-deployment',DEPLOYMENT_ID);confirmations.set('confirm-version',VERSION_ID);
+    for(const rows of [[older,newer],[newer,older]]) await expect(verifyWorker(target,confirmations,async()=>result(rows))).resolves.toBeUndefined();
+    confirmations.set('confirm-deployment',USER_ID);confirmations.set('confirm-version',USER_ID);
+    await expect(verifyWorker(target,confirmations,async()=>result([older,newer]))).rejects.toThrow('Konfirmasi');
+  });
+  it('orders microseconds across a second boundary without number precision loss',async()=>{
+    const current=deployment(DEPLOYMENT_ID,VERSION_ID,'2026-10-09T21:25:00.000001Z');
+    const previous=deployment(USER_ID,USER_ID,'2026-10-09T21:24:59.999999Z');
+    const confirmations=flags();confirmations.set('confirm-deployment',DEPLOYMENT_ID);confirmations.set('confirm-version',VERSION_ID);
+    await expect(verifyWorker(target,confirmations,async()=>result([previous,current]))).resolves.toBeUndefined();
+  });
+  it.each([
+    ['2026-10-09T21:24:59.469Z','2026-10-09T21:24:59.469000Z'],
+    ['2026-10-09T21:24:59Z','2026-10-09T21:24:59.000000Z'],
+    ['2026-10-09T21:24:59.469775Z','2026-10-09T21:24:59.469775Z'],
+  ])('rejects equivalent timestamp instants as ambiguous despite representation %s and %s',async(first,second)=>{
+    const confirmations=flags();confirmations.set('confirm-deployment',DEPLOYMENT_ID);confirmations.set('confirm-version',VERSION_ID);
+    await expect(verifyWorker(target,confirmations,async()=>result([deployment(DEPLOYMENT_ID,VERSION_ID,first),deployment(USER_ID,USER_ID,second)]))).rejects.toThrow('ambigu');
+  });
+  it('retains exact deployment/version validation with six-digit timestamps',async()=>{
+    const rows=[deployment(DEPLOYMENT_ID,VERSION_ID,'2026-10-09T21:24:59.469775Z')];
+    const confirmations=flags();confirmations.set('confirm-deployment',DEPLOYMENT_ID);confirmations.set('confirm-version',USER_ID);
+    await expect(verifyWorker(target,confirmations,async()=>result(rows))).rejects.toThrow('Konfirmasi');
+    confirmations.set('confirm-version',VERSION_ID);confirmations.set('confirm-new-worker',target.worker);
+    await expect(verifyWorker(target,confirmations,async()=>result(rows))).rejects.toThrow();
+  });
   it('temporary SQL file is private, passed by file only and deleted even CLI failure', async () => {
     let path=''; const sql='SELECT 1; -- synthetic SQL sentinel';
     await expect(executeRemoteSql(sql,async args=>{path=args[args.indexOf('--file')+1]; expect(args).toEqual(['d1','execute','DB','--remote','--file',path,'--json','--yes']); expect(args.join(' ')).not.toContain(sql); expect(await readFile(path,'utf8')).toBe(sql); return {status:1,stdout:sql,stderr:sql};})).rejects.toThrow('output mentah');
     await expect(readFile(path)).rejects.toThrow();
   });
-  function domainRequest(options: { dns?: Record<string,unknown>[]; domains?: Record<string,unknown>[]; info?: Record<string,unknown> | null; routes?: Record<string,unknown>[]; zoneName?: string } = {}): typeof fetch {
+  function domainRequest(options: { dns?: Record<string,unknown>[]; domains?: Record<string,unknown>[]; domainInfo?: Record<string,unknown> | null; info?: Record<string,unknown> | null; routes?: Record<string,unknown>[]; zoneName?: string } = {}): typeof fetch {
     const dns=options.dns??[];
     return async input=>{
       const url=new URL(String(input));
@@ -227,7 +290,7 @@ const result = (value: unknown): CliResult => ({ status:0,stdout:JSON.stringify(
         expect(url.searchParams.get('name.exact')).toBe(HOST); expect(url.searchParams.get('per_page')).toBe('100'); expect(url.searchParams.get('page')).toBe('1');
         payload={success:true,result:dns,...(options.info===null ? {} : {result_info:options.info??{page:1,per_page:100,count:dns.length,total_count:dns.length,total_pages:1}})};
       } else if(url.pathname.endsWith('/workers/routes')) payload={success:true,result:options.routes??[]};
-      else if(url.pathname.endsWith('/workers/domains')) payload={success:true,result:options.domains??[]};
+      else if(url.pathname.endsWith('/workers/domains')) payload={success:true,result:options.domains??[],...(options.domainInfo === undefined ? {} : {result_info:options.domainInfo})};
       else payload={success:true,result:{id:ZONE_ID,status:'active',name:options.zoneName??EXPECTED_ZONE_NAME,account:{id:EXPECTED_ACCOUNT}}};
       return new Response(JSON.stringify(payload),{status:200});
     };
@@ -236,6 +299,51 @@ const result = (value: unknown): CliResult => ({ status:0,stdout:JSON.stringify(
     await expect(verifyDomain(target,undefined,async()=>{throw new Error('must not fetch');})).rejects.toThrow();
     await expect(verifyDomain(target,'Synthetic-token',domainRequest(),domainFlags())).resolves.toBeUndefined();
     await expect(verifyDomain(target,'Synthetic-token',domainRequest({domains:[{hostname:HOST,service:'unrelated',zone_id:ZONE_ID}]}),domainFlags())).rejects.toThrow();
+  });
+  it('accepts complete unfiltered custom domains without optional total_pages and uses GET only', async () => {
+    const domains=[{hostname:`api.${EXPECTED_ZONE_NAME}`,service:'synthetic-other-worker',zone_id:ZONE_ID}];
+    const request=domainRequest({domains,domainInfo:{page:1,per_page:1,count:1,total_count:1}});
+    await expect(verifyDomain(target,'Synthetic-token',async(input,init)=>{
+      expect(init?.method??'GET').toBe('GET');
+      if(new URL(String(input)).pathname.endsWith('/workers/domains')) expect(new URL(String(input)).search).toBe('');
+      return request(input,init);
+    },domainFlags())).resolves.toBeUndefined();
+  });
+  it('accepts an empty complete domain inventory without total_pages',async()=>{
+    await expect(verifyDomain(target,'Synthetic-token',domainRequest({domainInfo:{page:1,per_page:1,count:0,total_count:0}}),domainFlags())).resolves.toBeUndefined();
+  });
+  it.each([
+    null, {}, {page:1,per_page:1,count:1}, {page:1,per_page:1,total_count:1},
+    {page:1,per_page:1,count:0,total_count:1}, {page:1,per_page:1,count:1,total_count:2},
+    {page:2,per_page:1,count:1,total_count:1}, {page:1,per_page:0,count:1,total_count:1},
+    {page:1,per_page:1.5,count:1,total_count:1}, {page:1,per_page:'1',count:1,total_count:1},
+    {page:1,per_page:1,count:'1',total_count:1}, {page:1,per_page:1,count:1,total_count:'1'},
+    {page:1,per_page:1,count:1,total_count:1,total_pages:2},
+    {page:1,per_page:1,count:1,total_count:1,total_pages:0},
+    {page:1,per_page:1,count:1,total_count:1,total_pages:null},
+    {page:1,per_page:1,count:1,total_count:1,total_pages:'1'},
+  ])('rejects malformed, incomplete or contradictory custom-domain pagination %#',async domainInfo=>{
+    const domains=[{hostname:`api.${EXPECTED_ZONE_NAME}`,service:'synthetic-other-worker',zone_id:ZONE_ID}];
+    await expect(verifyDomain(target,'Synthetic-token',domainRequest({domains,domainInfo}),domainFlags())).rejects.toThrow('Inventaris');
+  });
+  it('does not proceed past an incomplete or failed domain inventory',async()=>{
+    const request=domainRequest({domains:[],domainInfo:{page:1,per_page:1,count:0,total_count:1}});
+    const calls:string[]=[];
+    await expect(verifyDomain(target,'Synthetic-token',async(input,init)=>{calls.push(new URL(String(input)).pathname);return request(input,init);},domainFlags())).rejects.toThrow();
+    expect(calls.some(path=>path.endsWith('/dns_records')||path.endsWith('/workers/routes'))).toBe(false);
+    await expect(verifyDomain(target,'Synthetic-token',async()=>new Response(JSON.stringify({success:false}),{status:503}),domainFlags())).rejects.toThrow();
+  });
+  it('never treats matching counts as permission to take over an unrelated attachment',async()=>{
+    const domains=[{hostname:HOST,service:'synthetic-unrelated-worker',zone_id:ZONE_ID}];
+    await expect(verifyDomain(target,'Synthetic-token',domainRequest({domains,domainInfo:{page:1,per_page:1,count:1,total_count:1}}),domainFlags())).rejects.toThrow('dimiliki target lain');
+  });
+  it('retains exact-binding DNS review requirements with optional domain total_pages absent',async()=>{
+    const domains=[{hostname:HOST,service:EXPECTED_WORKER,zone_id:ZONE_ID}];
+    const dns=[{id:DNS_ID,name:HOST,type:'AAAA',proxied:true}];
+    const request=domainRequest({domains,dns,domainInfo:{page:1,per_page:1,count:1,total_count:1}});
+    await expect(verifyDomain(target,'Synthetic-token',request,domainFlags())).rejects.toThrow('DNS hostname sudah ada');
+    const reviewed=domainFlags();reviewed.set('confirm-dns-record',DNS_ID);
+    await expect(verifyDomain(target,'Synthetic-token',request,reviewed)).resolves.toBeUndefined();
   });
   it.each(['web.id','kupang.web.id',HOST])('rejects non-final zone name %s even when hostname is within it', async zoneName => {
     await expect(verifyDomain(target,'Synthetic-token',domainRequest({zoneName}),domainFlags())).rejects.toThrow('Zone aktif');

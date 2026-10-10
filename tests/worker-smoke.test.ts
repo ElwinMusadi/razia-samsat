@@ -20,7 +20,7 @@ let db: TestD1;
 
 async function boot(vars: Record<string, string>): Promise<void> {
   await mf?.dispose();
-  ({ mf, db } = await startMigratedD1({ modules: true, scriptPath: join(outdir, 'index.js'), bindings: vars }));
+  ({ mf, db } = await startMigratedD1({ modules: true, modulesRoot: outdir, scriptPath: join(outdir, 'index.js'), bindings: vars }));
 }
 const post = (path: string, body: unknown, cookie?: string) => mf.dispatchFetch(`${ORIGIN}${path}`, {
   method: 'POST', body: JSON.stringify(body),
@@ -36,8 +36,8 @@ beforeAll(async () => {
   expect(existsSync(join(outdir, 'index.js'))).toBe(true);
 }, 180000);
 afterAll(async () => {
-  await mf?.dispose();
-  await rm(outdir, { recursive: true, force: true });
+  try { await mf?.dispose(); }
+  finally { if (outdir) await rm(outdir, { recursive: true, force: true }); }
 });
 
 describe('bundled Worker in workerd', () => {

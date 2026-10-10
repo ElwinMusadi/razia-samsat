@@ -5,7 +5,7 @@ import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { Button } from '../src/components/ui/button';
 import { Input, PasswordInput } from '../src/components/ui/input';
-import { EmptyState, ErrorState, Surface } from '../src/components/ui/layout';
+import { EmptyState, ErrorState, PageHeader, Surface } from '../src/components/ui/layout';
 import { LookupOutcomeBadge, VehicleStatus, VehicleResultCard } from '../src/components/vehicle';
 import { NopolInput } from '../src/components/nopol-input';
 import { ApiError, errorText, type VehicleFound } from '../src/lib/api';
@@ -43,6 +43,36 @@ describe('approved design foundation', () => {
     render(createElement(Button, { variant }, 'Tindakan')); const button = screen.getByRole('button');
     expect(button.className).toContain('min-h-12'); expect(button.className).toContain('rounded-full');
     expect(button.className).toContain(variant === 'default' ? 'bg-foreground' : variant === 'destructive' ? 'bg-danger' : 'border-input');
+  });
+  it('focuses PageHeader headings by default for route accessibility', () => {
+    render(createElement(PageHeader, { title: 'Riwayat' }));
+    const heading = screen.getByRole('heading', { level: 1, name: 'Riwayat' });
+    expect(heading.getAttribute('tabindex')).toBe('-1');
+    expect(document.activeElement).toBe(heading);
+  });
+  it('keeps a PageHeader heading non-focusable when focusHeading is false', () => {
+    const focus = vi.spyOn(HTMLElement.prototype, 'focus');
+    render(createElement(PageHeader, { title: 'Masuk', focusHeading: false }));
+    const heading = screen.getByRole('heading', { level: 1, name: 'Masuk' });
+    expect(heading.hasAttribute('tabindex')).toBe(false);
+    expect(document.activeElement).not.toBe(heading);
+    expect(focus).not.toHaveBeenCalled();
+  });
+  it('retains interactive focus outlines and scopes the scanner account panel upward', () => {
+    expect(css).toContain('input:focus-visible, select:focus-visible, a:focus-visible, button:focus-visible, summary:focus-visible { outline: 2px solid var(--ring); outline-offset: 3px; }');
+    expect(css).not.toMatch(/outline:\s*(?:none|0)\b/);
+    expect(css).toContain('.scanner-session-controls { margin-top: var(--space-4); }');
+    expect(css).toContain('.scanner-session-controls .account-panel { top: auto; bottom: calc(100% + var(--space-2)); }');
+    expect(css).toMatch(/\.account-panel \{[^}]*top: calc\(100% \+ var\(--space-2\)\); width: min\(288px, calc\(100vw - var\(--space-8\)\)\)/);
+  });
+  it('uses compact scanner search spacing without new negative margins or a custom sr-only override', () => {
+    const searchRule = css.match(/\.scanner-search \{([^}]+)\}/)![1]!;
+    expect(searchRule).toContain('gap-2'); expect(searchRule).toContain('pb-2');
+    expect(searchRule).not.toMatch(/gap-3|pb-4|margin-top|margin-bottom|-mt-|-mb-/);
+    expect(css).toContain('--space-2: 8px'); expect(css).toContain('--space-3: 12px');
+    expect(css).not.toMatch(/\.sr-only\s*\{/);
+    // The pre-existing horizontal sticky-search bleed is the only negative margin utility.
+    expect(css.match(/-(?:m[trblxy]?)-\d+/g)).toEqual(['-mx-4']);
   });
   it('forwards an Input ref and associated label unchanged', () => {
     const ref = createRef<HTMLInputElement>(); render(createElement('label', null, 'Jalur', createElement(Input, { ref, name: 'lane' })));
@@ -91,16 +121,17 @@ describe('lookup outcome and vehicle status domains', () => {
     expect(container.querySelector('[data-outcome]')).toBeNull(); expect(container.querySelector('svg')!.getAttribute('aria-hidden')).toBe('true');
     container.querySelector('[data-status]')!.removeAttribute('class'); expect(container.textContent).toBe(label);
   });
-  it('orders NOPOL, authoritative statuses, vehicle facts and metadata without leaking IDs or logging', () => {
+  it('orders NOPOL, authoritative statuses and vehicle facts without metadata, IDs or logging', () => {
     const storage = vi.spyOn(Storage.prototype, 'setItem'); const logs = (['log', 'info', 'warn', 'error', 'debug'] as const).map(method => vi.spyOn(console, method));
     render(createElement(VehicleResultCard, { result })); const card = screen.getByRole('article');
     const heading = screen.getByRole('heading', { name: result.vehicle.nopol }); const status = card.querySelector('.status-group')!;
     expect(heading.className).toBe('result-nopol'); expect(css).toMatch(/\.result-nopol \{[^}]*font-family: var\(--font-ui\); font-size: 40px/);
     expect(heading.compareDocumentPosition(status) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(status.compareDocumentPosition(card.querySelector('.vehicle-facts')!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-    expect(card.querySelector('.vehicle-facts')!.compareDocumentPosition(card.querySelector('.vehicle-metadata')!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(card.querySelector('.vehicle-metadata')).toBeNull();
+    expect(card.textContent).not.toMatch(/Data langsung|Data cache|Diambil|Dievaluasi|Keputusan pemeriksaan tetap pada petugas/);
     expect(card.querySelector('[data-status="ACTIVE"]')!.textContent).toBe('AKTIF'); expect(card.querySelector('[data-status="UNKNOWN"]')!.textContent).toBe('TIDAK DAPAT DITENTUKAN');
-    expect(card.className).not.toMatch(/success|danger|emerald|red/); expect(card.textContent).toContain('WITA'); expect(card.textContent).not.toContain(result.request_id);
+    expect(card.className).not.toMatch(/success|danger|emerald|red/); expect(card.textContent).toContain('01 Jan 2000'); expect(card.textContent).not.toContain(result.request_id);
     expect(storage).not.toHaveBeenCalled(); for (const log of logs) expect(log).not.toHaveBeenCalled();
   });
   it('retains error metadata internally while rendering only the safe message', () => {

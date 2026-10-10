@@ -30,6 +30,7 @@ function routes(me: AuthState | Response, lookup: Lookup, active: unknown = { ac
     }
     if (input === '/api/raid-sessions/active') return json(active);
     if (input === '/api/locations') return json({ locations: [location] });
+    if (input === '/api/history/raid-sessions') return json({ raid_sessions: [], next_cursor: null });
     // Separate Phase 5 panel has empty synthetic data; lookup assertions remain scoped to Phase 4.
     if (String(input).endsWith('/checks?limit=10')) return json({ checks: [], next_cursor: null });
     if (String(input).endsWith('/summary')) return json({ raid_session: { ...raid, owner: me instanceof Response ? auth().user : me.user }, summary: { total_checks: 0, found: 0, not_found: 0, tax_active: 0, tax_expired: 0, tax_unknown: 0 } });
@@ -61,6 +62,90 @@ beforeEach(() => { fetchMock = vi.fn<typeof fetch>(); lookupSignals = []; vi.stu
 afterEach(() => { cleanup(); vi.useRealTimers(); vi.restoreAllMocks(); vi.unstubAllGlobals(); });
 
 describe('scanner shell and navigation', () => {
+  it('keeps fresh login heading non-focusable and tabs through the form controls in order', async () => {
+    fetchMock.mockResolvedValue(failure(401, 'AUTHENTICATION_ERROR')); mount('/login');
+    const heading = screen.getByRole('heading', { level: 1, name: 'Masuk' });
+    expect(heading.hasAttribute('tabindex')).toBe(false); expect(heading.tabIndex).toBe(-1);
+    expect(document.activeElement).not.toBe(heading);
+    await waitFor(() => expect((screen.getByRole('button', { name: 'Masuk' }) as HTMLButtonElement).disabled).toBe(false));
+    expect(document.activeElement).not.toBe(heading); expect(screen.queryByRole('alert')).toBeNull();
+    const user = userEvent.setup();
+    const username = screen.getByLabelText('Nama pengguna');
+    const password = screen.getByLabelText('Kata sandi') as HTMLInputElement;
+    const toggle = screen.getByRole('button', { name: 'Tampilkan kata sandi' });
+    const login = screen.getByRole('button', { name: 'Masuk' });
+    for (const control of [username, password, toggle, login]) { await user.tab(); expect(document.activeElement).toBe(control); }
+    await user.tab({ shift: true }); expect(document.activeElement).toBe(toggle);
+    await user.keyboard('{Enter}'); expect(password.type).toBe('text'); expect(toggle.getAttribute('aria-pressed')).toBe('true');
+    await user.keyboard('{Enter}'); expect(password.type).toBe('password'); expect(toggle.getAttribute('aria-pressed')).toBe('false');
+    expect(fetchMock.mock.calls.some(([path]) => path === '/api/auth/login')).toBe(false);
+    expect(heading.hasAttribute('tabindex')).toBe(false); expect(document.activeElement).not.toBe(heading);
+  });
+  it('places one session header after the loaded history panel inside main and preserves account/logout controls', async () => {
+    const registration = Object.assign(new EventTarget(), { waiting: null, installing: null });
+    const register = vi.fn().mockResolvedValue(registration);
+    vi.stubGlobal('isSecureContext', true);
+    vi.stubGlobal('navigator', Object.create(navigator, { serviceWorker: { configurable: true, value: { register, controller: null } } }));
+    const owner = auth();
+    routes(owner, nopol => found(nopol));
+    const defaultRoutes = fetchMock.getMockImplementation()!;
+    fetchMock.mockImplementation((input, init) => String(input).endsWith('/checks?limit=10')
+      ? Promise.resolve(json({ checks: [{ id: '44444444-4444-4444-8444-444444444444', nopol: 'DH1823HJ', outcome: 'FOUND', tax_status: 'ACTIVE', stnk_status: 'ACTIVE', source: 'CACHE', checked_at: raid.started_at }], next_cursor: null }))
+      : defaultRoutes(input, init));
+    mount();
+    const history = await screen.findByRole('list', { name: 'Pengecekan terbaru' });
+    const heading = screen.getByRole('heading', { name: 'Riwayat sesi ini' });
+    const panel = heading.closest('section')!;
+    const main = screen.getByRole('main');
+    const headers = document.querySelectorAll('header');
+    expect(headers).toHaveLength(1);
+    const header = headers[0]!;
+    const footer = main.querySelector('[data-session-controls-footer]')!;
+    expect(footer.className).toBe('scanner-session-controls');
+    expect(main.lastElementChild).toBe(footer);
+    expect(footer.lastElementChild).toBe(header);
+    expect(main.contains(panel)).toBe(true); expect(main.contains(header)).toBe(true);
+    for (const node of [heading, history, panel]) expect(node.compareDocumentPosition(header) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(document.querySelectorAll('.session-indicator')).toHaveLength(1);
+    expect(within(header).getByText('SESI AKTIF')).toBeTruthy();
+    expect(document.querySelectorAll('.account-disclosure')).toHaveLength(1);
+    expect(screen.getAllByRole('button', { name: 'Keluar' })).toHaveLength(1);
+    const disclosure = header.querySelector('details')!;
+    const account = within(header).getByText('Akun').closest('summary')!;
+    expect(disclosure.open).toBe(false);
+    await userEvent.click(account);
+    expect(disclosure.open).toBe(true);
+    expect(within(header).getByText(owner.user.username)).toBeTruthy();
+    expect(disclosure.querySelector('.account-panel .pwa-controls')).not.toBeNull();
+    account.focus(); expect(document.activeElement).toBe(account);
+    const logout = within(header).getByRole('button', { name: 'Keluar' });
+    expect(logout.className).toContain('min-h-12');
+    expect(logout.getAttribute('aria-describedby')).toBe('logout-help');
+    const nav = screen.getByRole('navigation', { name: 'Navigasi utama' });
+    expect(main.contains(nav)).toBe(false);
+    expect(header.compareDocumentPosition(nav) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    await userEvent.click(logout);
+    await screen.findByRole('heading', { name: 'Masuk' });
+    const calls = fetchMock.mock.calls.filter(([path]) => path === '/api/auth/logout');
+    expect(calls).toHaveLength(1); expect(calls[0]![1]!.method).toBe('POST'); expect(calls[0]![1]!.body).toBe('{}');
+    expect(fetchMock.mock.calls.some(([path]) => String(path).endsWith('/close'))).toBe(false);
+  });
+  it.each(['/razia/setup', '/history'])('keeps the header before main and default heading focus on %s', async path => {
+    routes(auth(), nopol => found(nopol)); mount(path);
+    const heading = await screen.findByRole('heading', { level: 1, name: path === '/history' ? 'Riwayat' : 'Sesi razia' });
+    const main = screen.getByRole('main');
+    const headers = document.querySelectorAll('header');
+    expect(headers).toHaveLength(1);
+    const header = headers[0]!;
+    expect(main.contains(header)).toBe(false); expect(main.previousElementSibling).toBe(header);
+    expect(header.compareDocumentPosition(main) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(document.querySelector('[data-session-controls-footer]')).toBeNull();
+    expect(header.querySelector('.account-disclosure')).not.toBeNull();
+    expect(document.querySelectorAll('.session-indicator')).toHaveLength(1);
+    expect(screen.getAllByRole('button', { name: 'Keluar' })).toHaveLength(1);
+    expect(heading.getAttribute('tabindex')).toBe('-1');
+    await waitFor(() => expect(document.activeElement).toBe(heading));
+  });
   it.each([true, false])('uses one fixed bottom navigation with safe-area and content clearance (active=%s)', async active => {
     const input = await ready(auth(active ? raid : null));
     const nav = screen.getByRole('navigation', { name: 'Navigasi utama' });
@@ -115,6 +200,10 @@ describe('scanner shell and navigation', () => {
     expect(screen.getByText(/Lokasi sintetis · Jalur arah pusat kota/)).toBeTruthy();
     expect(screen.getByRole('search', { name: 'Cari kendaraan' })).toBeTruthy();
     expect(lookupStatus().textContent).toBe('');
+    expect(lookupStatus().className).toBe('sr-only'); expect(lookupStatus().hasAttribute('hidden')).toBe(false);
+    expect(lookupStatus().getAttribute('aria-hidden')).toBeNull();
+    const scanner = screen.getByRole('region', { name: 'Scanner' });
+    expect(scanner.classList.contains('gap-3')).toBe(true); expect(scanner.classList.contains('gap-4')).toBe(false);
     expect(screen.queryByRole('alert')).toBeNull();
     expect(screen.queryByRole('button', { name: 'Hapus NOPOL' })).toBeNull();
     expect(document.title).toBe('Scanner — Razia SAMSAT');
@@ -218,19 +307,25 @@ describe('scanner lookup flow', () => {
     expect(lookupCalls()).toHaveLength(1);
     expect(document.activeElement).toBe(input);
   });
-  it('shows small loading status without hiding the input', async () => {
+  it('keeps the same live region mounted, compact when idle and visible while queued or loading', async () => {
     const pending = deferred<Response>();
     const input = await ready(auth(), () => pending.promise);
-    await search('DH1234ZZ');
     const status = lookupStatus();
-    expect(status.textContent).toContain('Mencari data DH1234ZZ');
-    expect(input.disabled).toBe(false);
+    expect(status.className).toBe('sr-only'); expect(status.textContent).toBe('');
+    fireEvent.change(input, { target: { value: 'DH1234ZZ' } });
+    expect(lookupStatus()).toBe(status); expect(status.classList.contains('sr-only')).toBe(false);
+    expect(status.classList.contains('min-h-5')).toBe(true); expect(status.textContent).toContain('Menunggu ketikan selesai');
+    fireEvent.submit(input.form!);
+    expect(lookupStatus()).toBe(status); expect(status.textContent).toContain('Mencari data DH1234ZZ');
+    expect(status.classList.contains('sr-only')).toBe(false); expect(status.classList.contains('min-h-5')).toBe(true);
+    expect(status.hasAttribute('hidden')).toBe(false); expect(status.getAttribute('aria-hidden')).toBeNull();
+    expect(input.disabled).toBe(false); expect(lookupCalls()).toHaveLength(1);
     await act(async () => pending.resolve(found()));
     await screen.findByRole('heading', { name: 'DH1234ZZ' });
-    expect(lookupStatus().textContent).toBe('');
+    expect(lookupStatus()).toBe(status); expect(status.textContent).toBe(''); expect(status.className).toBe('sr-only');
   });
-  it('renders FOUND card with statuses, due dates and freshness', async () => {
-    await ready();
+  it.each(['LIVE', 'CACHE'] as const)('renders %s FOUND card with statuses and due dates without the removed scanner metadata', async source => {
+    await ready(auth(), nopol => found(nopol, {}, { source }));
     await search('dh 1234 zz');
     const card = await screen.findByRole('article');
     expect(screen.getByRole('heading', { name: 'DH1234ZZ' })).toBeTruthy();
@@ -244,15 +339,14 @@ describe('scanner lookup flow', () => {
     expect(stnk.textContent).toContain('AKTIF'); expect(stnk.textContent).toContain('01 Mar 2027');
     expect(stnk.querySelector('[data-status]')!.getAttribute('data-status')).toBe('ACTIVE');
     expect(stnk.querySelector('[data-status] svg[aria-hidden="true"]')).not.toBeNull();
-    expect(card.textContent).toContain('Data langsung');
-    expect(card.textContent).toMatch(/Diambil .*00\.30\.05 WITA/);
-    expect(card.textContent).toContain('Dievaluasi 07 Okt 2026 WITA');
-    expect(card.textContent).toContain('Keputusan pemeriksaan tetap pada petugas');
+    expect(card.querySelector('.vehicle-metadata')).toBeNull();
+    expect(card.textContent).not.toMatch(/Data langsung|Data cache|Diambil|Dievaluasi|Keputusan pemeriksaan tetap pada petugas/);
+    expect(card.querySelector('time')).toBeNull();
     expect(card.closest('[aria-live="polite"]')).not.toBeNull();
     expect(document.activeElement).toBe(field());
     expect(screen.queryByText('Data kendaraan tidak ditemukan')).toBeNull();
   });
-  it('renders UNKNOWN as neutral text and cache source', async () => {
+  it('renders UNKNOWN as neutral text without cache metadata', async () => {
     await ready(auth(), nopol => found(nopol, { tax_status: 'UNKNOWN', tax_due_date: null, stnk_status: 'UNKNOWN', stnk_due_date: null }, { source: 'CACHE' }));
     await search('DH1234ZZ');
     const tax = await screen.findByRole('region', { name: 'Status Pajak' });
@@ -261,7 +355,9 @@ describe('scanner lookup flow', () => {
     expect(badge.className).not.toMatch(/bg-(red|emerald)-600/);
     expect(tax.textContent).toContain('Tidak tersedia');
     expect(screen.getByRole('region', { name: 'Status STNK' }).textContent).toContain('TIDAK DAPAT DITENTUKAN');
-    expect(screen.getByText('Data cache (≤5 menit)')).toBeTruthy();
+    const card = screen.getByRole('article');
+    expect(card.querySelector('.vehicle-metadata')).toBeNull();
+    expect(card.textContent).not.toMatch(/Data langsung|Data cache|Diambil|Dievaluasi|Keputusan pemeriksaan tetap pada petugas/);
   });
   it('shows NOT_FOUND distinctly with the requested normalized NOPOL', async () => {
     await ready(auth(), () => json({ outcome: 'NOT_FOUND', request_id: 'req-nf', message: 'SENSITIVE provider text' }));

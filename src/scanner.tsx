@@ -139,7 +139,7 @@ export function Scanner() {
 
   const showHint = value !== '' && normalizeNopol(value) === null;
   const describedBy = [showHint ? 'nopol-hint' : '', 'nopol-help'].filter(Boolean).join(' ');
-  return <section aria-labelledby="scanner-title" className="flex flex-col gap-4">
+  return <section aria-labelledby="scanner-title" className="flex flex-col gap-3">
     <div className="scanner-search">
       <h1 id="scanner-title" className="scanner-heading">Scanner</h1>
       {raid && <p className="break-words text-sm font-medium"><span className="sr-only">Sesi razia aktif: </span>{raid.location.name} · Jalur {raid.lane}</p>}
@@ -155,7 +155,7 @@ export function Scanner() {
         {showHint && <p id="nopol-hint" className="text-sm font-medium">Format NOPOL belum valid: maksimal 64 karakter, 1–2 huruf, 1–4 angka, 0–3 huruf, tanpa tanda baca (contoh DH 1234 ZZ).</p>}
       </form>
       {/* The live region stays mounted so screen readers reliably announce loading changes. */}
-      <p id="lookup-status" role="status" className="flex min-h-5 items-center gap-2 text-sm">
+      <p id="lookup-status" role="status" className={state.kind === 'loading' || state.kind === 'queued' ? 'flex min-h-5 items-center gap-2 text-sm' : 'sr-only'}>
         {state.kind === 'loading' && <><Spinner />Mencari data {state.nopol}…</>}
         {state.kind === 'queued' && <><Spinner />Menunggu ketikan selesai…</>}
       </p>
