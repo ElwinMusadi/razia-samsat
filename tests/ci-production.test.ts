@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { ciBuild, ciDryrun, ciDeploy, getDefaultDeps, type CiDeps } from '../scripts/ci-production.ts';
+import { ciBuild, ciDryrun, ciDeploy, getDefaultDeps, readPlatformGet, type CiDeps, type PlatformPhase } from '../scripts/ci-production.ts';
 import { mkdtempSync, rmSync, writeFileSync, mkdirSync, readFileSync, existsSync, symlinkSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import { join } from 'node:path';
@@ -564,6 +564,522 @@ describe('ci-production', () => {
       });
       writeFileSync(join(tempRoot, 'secret.pem'), 'key');
       await expect(ciBuild(deps)).rejects.toThrow('Ekstensi kunci dilarang.');
+    });
+  });
+
+  describe('readPlatformGet unit tests', () => {
+    const DUMMY_SECRET = 'DUMMY-SECRET-MARKER-999';
+    const validPath = `/accounts/${target.account}/workers/domains`;
+
+    const httpCases = (['preflight', 'post_upload'] as const).flatMap(phase =>
+      [401, 403, 404, 429, 500, 502, 503].map(status => ({ phase, status }))
+    );
+
+    it.each(httpCases)(
+      'emits exact diagnostic JSON and excludes secrets for status $status in phase $phase',
+      async ({ phase, status }) => {
+        const noticeMock = vi.fn();
+        const secretToken = `synthetic-token-${DUMMY_SECRET}`;
+        const fetchMock = vi.fn().mockImplementation(async (_url: string, init?: RequestInit) => {
+          expect(init?.headers).toEqual({ Authorization: `Bearer ${secretToken}` });
+          return new Response(
+            JSON.stringify({
+              success: false,
+              errors: [{ code: 10001, message: `leaked-err-${DUMMY_SECRET}` }],
+              result: { secret: `leaked-result-${DUMMY_SECRET}` },
+            }),
+            {
+              status,
+              statusText: `Custom-${status}-${DUMMY_SECRET}`,
+              headers: {
+                'cf-ray': '0123456789abcdef',
+                'request-id': '11111111-2222-3333-4444-555555555555',
+                'x-secret-header': `header-${DUMMY_SECRET}`,
+              },
+            }
+          );
+        });
+
+        let thrown: Error | undefined;
+        try {
+          await readPlatformGet(target, validPath, secretToken, phase, noticeMock, fetchMock);
+        } catch (err) {
+          thrown = err as Error;
+        }
+
+        expect(thrown).toBeDefined();
+        expect(thrown?.message).toBe('Platform GET gagal; output tidak ditampilkan.');
+        expect(noticeMock).toHaveBeenCalledTimes(1);
+
+        const rawNotice = noticeMock.mock.calls[0][0];
+        const diag = JSON.parse(rawNotice) as Record<string, unknown>;
+
+        expect(Object.keys(diag).sort()).toEqual([
+          'category',
+          'codes',
+          'method',
+          'path',
+          'phase',
+          'requestIDs',
+          'status',
+        ]);
+        expect(diag.method).toBe('GET');
+        expect(diag.path).toBe(validPath);
+        expect(diag.status).toBe(status);
+        expect(diag.codes).toEqual([10001]);
+        expect(diag.category).toBe('http');
+        expect(diag.phase).toBe(phase);
+        expect(diag.requestIDs).toEqual({
+          'cf-ray': '0123456789abcdef',
+          'request-id': '11111111-2222-3333-4444-555555555555',
+        });
+
+        const combined = `${rawNotice} ${thrown?.message ?? ''}`;
+        expect(combined).not.toContain(DUMMY_SECRET);
+      }
+    );
+
+    it('strips query parameters from diagnostic path on valid DNS query and rejects unknown query marker', async () => {
+      const dnsPath = `/zones/${target.zone}/dns_records?name.exact=${encodeURIComponent(target.hostname)}&page=1&per_page=100`;
+      const noticeMock = vi.fn();
+      const fetchMock = vi.fn().mockResolvedValue(
+        new Response(JSON.stringify({ success: false, errors: [{ code: 1002 }] }), { status: 404 })
+      );
+
+      await expect(
+        readPlatformGet(target, dnsPath, CF_TOKEN, 'preflight', noticeMock, fetchMock)
+      ).rejects.toThrow('Platform GET gagal; output tidak ditampilkan.');
+
+      expect(noticeMock).toHaveBeenCalledTimes(1);
+      const diag = JSON.parse(noticeMock.mock.calls[0][0]) as Record<string, unknown>;
+      expect(diag.path).toBe(`/zones/${target.zone}/dns_records`);
+      expect(String(diag.path)).not.toContain('?');
+
+      const badQueryPath = `${dnsPath}&unknown_marker=${DUMMY_SECRET}`;
+      const badNotice = vi.fn();
+      const badFetch = vi.fn();
+      await expect(
+        readPlatformGet(target, badQueryPath, CF_TOKEN, 'preflight', badNotice, badFetch)
+      ).rejects.toThrow('Path API tidak sesuai scope.');
+      expect(badFetch).not.toHaveBeenCalled();
+      expect(badNotice).not.toHaveBeenCalled();
+    });
+
+    it('bounds error codes to max 5 positive safe integers <= 9999999 and ignores invalid/duplicates', async () => {
+      const noticeMock = vi.fn();
+      const rawErrors = [
+        { code: 2001 },
+        { code: 2001 },
+        { code: -10 },
+        { code: 0 },
+        { code: 1.25 },
+        { code: '2002' },
+        { code: 10000000 },
+        { code: 2003 },
+        { code: 2004 },
+        { code: 2005 },
+        { code: 2006 },
+        { code: 2007 },
+      ];
+      const fetchMock = vi.fn().mockResolvedValue(
+        new Response(JSON.stringify({ success: false, errors: rawErrors }), { status: 400 })
+      );
+
+      await expect(
+        readPlatformGet(target, validPath, CF_TOKEN, 'preflight', noticeMock, fetchMock)
+      ).rejects.toThrow('Platform GET gagal; output tidak ditampilkan.');
+
+      const diag = JSON.parse(noticeMock.mock.calls[0][0]) as Record<string, unknown>;
+      expect(diag.codes).toEqual([2001, 2003, 2004, 2005, 2006]);
+
+      noticeMock.mockClear();
+      fetchMock.mockResolvedValue(new Response(JSON.stringify({
+        success: false,
+        errors: [...Array.from({ length: 20 }, () => ({ code: 'invalid' })), { code: 9001 }],
+      }), { status: 403 }));
+      await expect(readPlatformGet(target, validPath, CF_TOKEN, 'preflight', noticeMock, fetchMock)).rejects.toThrow('Platform GET gagal; output tidak ditampilkan.');
+      expect(JSON.parse(noticeMock.mock.calls[0][0]).codes).toEqual([]);
+    });
+
+    it('validates cf-ray and request-id formats, falls back to x-request-id, and discards malformed/unknown headers', async () => {
+      const noticeMock = vi.fn();
+      const fetchMock = vi.fn().mockResolvedValue(
+        new Response(JSON.stringify({ success: false, errors: [] }), {
+          status: 403,
+          headers: {
+            'cf-ray': '0123456789abcdef-AMS',
+            'x-request-id': '22222222-3333-4444-8555-666666666666',
+          },
+        })
+      );
+
+      await expect(
+        readPlatformGet(target, validPath, CF_TOKEN, 'preflight', noticeMock, fetchMock)
+      ).rejects.toThrow('Platform GET gagal; output tidak ditampilkan.');
+
+      let diag = JSON.parse(noticeMock.mock.calls[0][0]) as Record<string, unknown>;
+      expect(diag.requestIDs).toEqual({
+        'cf-ray': '0123456789abcdef-AMS',
+        'request-id': '22222222-3333-4444-8555-666666666666',
+      });
+
+      noticeMock.mockClear();
+      const mockResp = new Response(JSON.stringify({ success: false, errors: [] }), { status: 403 });
+      vi.spyOn(mockResp.headers, 'get').mockImplementation((key: string) => {
+        if (key === 'cf-ray') return '0123456789abcdef\n';
+        if (key === 'request-id') return '11111111-2222-3333-4444-555555555555\n';
+        if (key === 'x-request-id') return 'also-not-a-uuid';
+        return null;
+      });
+      fetchMock.mockResolvedValue(mockResp);
+
+      await expect(
+        readPlatformGet(target, validPath, CF_TOKEN, 'preflight', noticeMock, fetchMock)
+      ).rejects.toThrow('Platform GET gagal; output tidak ditampilkan.');
+
+      diag = JSON.parse(noticeMock.mock.calls[0][0]) as Record<string, unknown>;
+      expect(diag.requestIDs).toEqual({
+        'cf-ray': null,
+        'request-id': null,
+      });
+    });
+
+    it('rejects invalid target, unknown path, unknown phase, and missing token before fetch', async () => {
+      const noticeMock = vi.fn();
+      const fetchMock = vi.fn();
+
+      await expect(
+        readPlatformGet(target, '/accounts/foo/bar', CF_TOKEN, 'preflight', noticeMock, fetchMock)
+      ).rejects.toThrow('Path API tidak sesuai scope.');
+
+      await expect(
+        readPlatformGet(target, validPath, CF_TOKEN, 'unknown_phase' as any, noticeMock, fetchMock)
+      ).rejects.toThrow('Fase platform tidak dikenal.');
+
+      const badTargets: ProductionTarget[] = [
+        { ...target, account: 'invalid-acc' },
+        { ...target, worker: 'invalid-worker' },
+        { ...target, hostname: 'evil.com' },
+        { ...target, zone: 'invalid-zone' },
+        { ...target, zone: `${target.zone}\n` },
+      ];
+      for (const badTarget of badTargets) {
+        await expect(
+          readPlatformGet(badTarget, validPath, CF_TOKEN, 'preflight', noticeMock, fetchMock)
+        ).rejects.toThrow('Target tidak valid.');
+      }
+
+      await expect(
+        readPlatformGet(target, validPath, '', 'preflight', noticeMock, fetchMock)
+      ).rejects.toThrow('Token platform tidak tersedia.');
+
+      expect(fetchMock).not.toHaveBeenCalled();
+      expect(noticeMock).not.toHaveBeenCalled();
+    });
+
+    it('returns parsed payload without diagnostic for all 5 allowed paths across both phases', async () => {
+      const expectedPaths = [
+        `/accounts/${target.account}/workers/domains`,
+        `/zones/${target.zone}/dns_records?name.exact=${encodeURIComponent(target.hostname)}&page=1&per_page=100`,
+        `/zones/${target.zone}`,
+        `/zones/${target.zone}/workers/routes`,
+        `/accounts/${target.account}/workers/scripts/${target.worker}/settings`,
+      ];
+      const phases: PlatformPhase[] = ['preflight', 'post_upload'];
+
+      for (const phase of phases) {
+        for (const path of expectedPaths) {
+          const noticeMock = vi.fn();
+          const expectedPayload = { success: true, result: { pathVerified: path } };
+          const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify(expectedPayload), { status: 200 }));
+
+          const result = await readPlatformGet(target, path, CF_TOKEN, phase, noticeMock, fetchMock);
+          expect(result).toEqual(expectedPayload);
+          expect(noticeMock).not.toHaveBeenCalled();
+        }
+      }
+    });
+
+    it('handles malformed JSON on non-OK status, non-object JSON on 200, and 200 with success: false', async () => {
+      const noticeMock = vi.fn();
+
+      const fetchBadJson = vi.fn().mockResolvedValue(new Response('<html>Error</html>', { status: 502 }));
+      await expect(
+        readPlatformGet(target, validPath, CF_TOKEN, 'preflight', noticeMock, fetchBadJson)
+      ).rejects.toThrow('Platform GET gagal; output tidak ditampilkan.');
+      let diag = JSON.parse(noticeMock.mock.calls[0][0]) as Record<string, unknown>;
+      expect(diag.category).toBe('http');
+      expect(diag.status).toBe(502);
+      expect(diag.codes).toEqual([]);
+
+      const nonObjects = [null, [1, 2, 3], 'primitive-string', 12345];
+      for (const badData of nonObjects) {
+        noticeMock.mockClear();
+        const fetchNonObj = vi.fn().mockResolvedValue(new Response(JSON.stringify(badData), { status: 200 }));
+        await expect(
+          readPlatformGet(target, validPath, CF_TOKEN, 'preflight', noticeMock, fetchNonObj)
+        ).rejects.toThrow('Platform GET gagal; output tidak ditampilkan.');
+        diag = JSON.parse(noticeMock.mock.calls[0][0]) as Record<string, unknown>;
+        expect(diag.category).toBe('invalid_response');
+        expect(diag.status).toBe(200);
+      }
+
+      noticeMock.mockClear();
+      const fetchApiError = vi.fn().mockResolvedValue(
+        new Response(JSON.stringify({ success: false, errors: [{ code: 1000 }] }), { status: 200 })
+      );
+      const res = await readPlatformGet(target, validPath, CF_TOKEN, 'preflight', noticeMock, fetchApiError);
+      expect(res.success).toBe(false);
+      expect(noticeMock).toHaveBeenCalledTimes(1);
+      diag = JSON.parse(noticeMock.mock.calls[0][0]) as Record<string, unknown>;
+      expect(diag.category).toBe('api_error');
+      expect(diag.status).toBe(200);
+      expect(diag.codes).toEqual([1000]);
+    });
+
+    it('cancels error stream when exceeding 64 KiB without awaiting never-resolving cancel, and fails 1 MiB success stream as body_too_large', async () => {
+      const noticeMock = vi.fn();
+      let cancelCalled = false;
+      const errorChunk1 = new Uint8Array(64 * 1024);
+      const errorChunk2 = new Uint8Array(1);
+      const chunks = [errorChunk1, errorChunk2];
+      let readCount = 0;
+
+      const errorStream = new ReadableStream<Uint8Array>({
+        pull(controller) {
+          if (readCount < chunks.length) {
+            controller.enqueue(chunks[readCount++]);
+          } else {
+            // Keep the upstream open: the byte limit must cancel, not rely on EOF.
+            return new Promise<void>(() => {});
+          }
+        },
+        cancel() {
+          cancelCalled = true;
+          return new Promise<void>(() => {});
+        },
+      });
+
+      const fetchErrorStream = vi.fn().mockResolvedValue(
+        new Response(errorStream, { status: 400 })
+      );
+
+      await expect(
+        readPlatformGet(target, validPath, CF_TOKEN, 'preflight', noticeMock, fetchErrorStream)
+      ).rejects.toThrow('Platform GET gagal; output tidak ditampilkan.');
+
+      expect(cancelCalled).toBe(true);
+      expect(readCount).toBe(2);
+      const diag = JSON.parse(noticeMock.mock.calls[0][0]) as Record<string, unknown>;
+      expect(diag.category).toBe('http');
+      expect(diag.status).toBe(400);
+
+      noticeMock.mockClear();
+      const bigSuccessChunk = new Uint8Array(1024 * 1024 + 1);
+      const successStream = new ReadableStream<Uint8Array>({
+        start(controller) {
+          controller.enqueue(bigSuccessChunk);
+          controller.close();
+        },
+      });
+      const fetchSuccessStream = vi.fn().mockResolvedValue(new Response(successStream, { status: 200 }));
+
+      await expect(
+        readPlatformGet(target, validPath, CF_TOKEN, 'preflight', noticeMock, fetchSuccessStream)
+      ).rejects.toThrow('Metadata melebihi batas.');
+
+      const successDiag = JSON.parse(noticeMock.mock.calls[0][0]) as Record<string, unknown>;
+      expect(successDiag.category).toBe('body_too_large');
+      expect(successDiag.status).toBe(200);
+
+      noticeMock.mockClear();
+      const throwingStream = new ReadableStream<Uint8Array>({
+        start(controller) {
+          controller.error(new Error('stream-read-failure'));
+        },
+      });
+      const fetchThrowing = vi.fn().mockResolvedValue(new Response(throwingStream, { status: 503 }));
+      await expect(
+        readPlatformGet(target, validPath, CF_TOKEN, 'preflight', noticeMock, fetchThrowing)
+      ).rejects.toThrow('Platform GET gagal; output tidak ditampilkan.');
+      const throwDiag = JSON.parse(noticeMock.mock.calls[0][0]) as Record<string, unknown>;
+      expect(throwDiag.category).toBe('http');
+      expect(throwDiag.status).toBe(503);
+    });
+
+    it('maps network, timeout, and abort errors to static categories with null status and IDs', async () => {
+      const errorCases = [
+        { err: new Error(`ECONNRESET-${DUMMY_SECRET}`), expectedCat: 'network' },
+        { err: Object.assign(new Error(`Timeout-${DUMMY_SECRET}`), { name: 'TimeoutError' }), expectedCat: 'timeout' },
+        { err: Object.assign(new Error(`Abort-${DUMMY_SECRET}`), { name: 'AbortError' }), expectedCat: 'aborted' },
+      ];
+
+      for (const { err, expectedCat } of errorCases) {
+        const noticeMock = vi.fn();
+        const fetchMock = vi.fn().mockRejectedValue(err);
+
+        let thrown: Error | undefined;
+        try {
+          await readPlatformGet(target, validPath, CF_TOKEN, 'preflight', noticeMock, fetchMock);
+        } catch (e) {
+          thrown = e as Error;
+        }
+
+        expect(thrown?.message).toBe('Platform GET gagal; output tidak ditampilkan.');
+        expect(thrown?.message).not.toContain(DUMMY_SECRET);
+
+        const rawNotice = noticeMock.mock.calls[0][0];
+        expect(rawNotice).not.toContain(DUMMY_SECRET);
+        const diag = JSON.parse(rawNotice) as Record<string, unknown>;
+        expect(diag.category).toBe(expectedCat);
+        expect(diag.status).toBeNull();
+        expect(diag.requestIDs).toEqual({ 'cf-ray': null, 'request-id': null });
+      }
+    });
+
+    it('handles deterministic deadline abortion during body read with cancel call and safe timeout diagnostic', async () => {
+      const noticeMock = vi.fn();
+      const controller = new AbortController();
+      const timeoutSpy = vi.spyOn(AbortSignal, 'timeout').mockReturnValue(controller.signal);
+      let readerCancelled = false;
+      let markReading!: () => void;
+      const reading = new Promise<void>(resolve => { markReading = resolve; });
+
+      try {
+        const slowStream = new ReadableStream<Uint8Array>({
+          pull() {
+            markReading();
+            return new Promise(() => {});
+          },
+          cancel() {
+            readerCancelled = true;
+          },
+        });
+        const fetchMock = vi.fn().mockResolvedValue(new Response(slowStream, { status: 200 }));
+
+        const promise = readPlatformGet(target, validPath, CF_TOKEN, 'preflight', noticeMock, fetchMock);
+
+        await reading;
+
+        controller.abort(new DOMException(`Timeout-${DUMMY_SECRET}`, 'TimeoutError'));
+
+        let thrown: Error | undefined;
+        try {
+          await promise;
+        } catch (e) {
+          thrown = e as Error;
+        }
+
+        expect(timeoutSpy).toHaveBeenCalledWith(15000);
+        expect(readerCancelled).toBe(true);
+        expect(thrown?.message).toBe('Platform GET gagal; output tidak ditampilkan.');
+        expect(thrown?.message).not.toContain(DUMMY_SECRET);
+
+        const rawNotice = noticeMock.mock.calls[0][0];
+        expect(rawNotice).not.toContain(DUMMY_SECRET);
+        const diag = JSON.parse(rawNotice) as Record<string, unknown>;
+        expect(diag.category).toBe('timeout');
+        expect(diag.status).toBe(200);
+      } finally {
+        timeoutSpy.mockRestore();
+      }
+    });
+
+    it('handles pre-aborted controller race without hanging and emits aborted or timeout diagnostic', async () => {
+      const noticeMock = vi.fn();
+      const controller = new AbortController();
+      controller.abort(new DOMException('already-aborted', 'AbortError'));
+      const timeoutSpy = vi.spyOn(AbortSignal, 'timeout').mockReturnValue(controller.signal);
+
+      try {
+        const fetchMock = vi.fn().mockImplementation(async () => {
+          return new Response(JSON.stringify({ success: true, result: {} }), { status: 200 });
+        });
+
+        await expect(
+          readPlatformGet(target, validPath, CF_TOKEN, 'preflight', noticeMock, fetchMock)
+        ).rejects.toThrow('Platform GET gagal; output tidak ditampilkan.');
+
+        expect(noticeMock).toHaveBeenCalledTimes(1);
+        const diag = JSON.parse(noticeMock.mock.calls[0][0]) as Record<string, unknown>;
+        expect(['aborted', 'timeout']).toContain(diag.category);
+      } finally {
+        timeoutSpy.mockRestore();
+      }
+    });
+  });
+
+  describe('readPlatformGet Integration (Pipeline)', () => {
+    it.each([
+      { name: 'preflight domains 403', matchPath: 'domains', isZoneExact: false, targetPhase: 'preflight' as const },
+      { name: 'nested zone 403', matchPath: 'zones/', isZoneExact: true, targetPhase: 'preflight' as const },
+      { name: 'post_upload settings 403', matchPath: 'settings', isZoneExact: false, targetPhase: 'post_upload' as const },
+    ])(
+      'enforces lifecycle gate on $name with correct upload/deploy invocation boundaries',
+      async ({ matchPath, isZoneExact, targetPhase }) => {
+        await ciBuild(deps);
+        (deps.notice as any).mockClear();
+        (deps.runWrangler as any).mockClear();
+
+        const origReadPlatform = deps.readPlatform;
+        const fetchMock = vi.fn().mockImplementation(async () => {
+          return new Response(
+            JSON.stringify({ success: false, errors: [{ code: 1000 }] }),
+            { status: 403 }
+          );
+        });
+
+        deps.readPlatform = vi.fn().mockImplementation(async (t: ProductionTarget, path: string, phase: PlatformPhase) => {
+          const shouldFail = isZoneExact
+            ? path === `/zones/${t.zone}`
+            : path.includes(matchPath) && phase === targetPhase;
+
+          if (shouldFail) {
+            return readPlatformGet(t, path, CF_TOKEN, phase, deps.notice, fetchMock);
+          }
+          return origReadPlatform(t, path, phase);
+        });
+
+        await expect(ciDeploy(deps)).rejects.toThrow();
+
+        if (targetPhase === 'preflight') {
+          expect(deps.runWrangler).not.toHaveBeenCalledWith(expect.arrayContaining(['upload']));
+          expect(deps.runWrangler).not.toHaveBeenCalledWith(expect.arrayContaining(['deploy']));
+          expect(deps.notice).toHaveBeenCalledWith(expect.stringContaining('"phase":"preflight"'));
+          expect(deps.notice).toHaveBeenCalledWith(expect.stringContaining('"status":403'));
+        } else {
+          expect(deps.runWrangler).toHaveBeenCalledWith(expect.arrayContaining(['upload']));
+          expect(deps.runWrangler).not.toHaveBeenCalledWith(expect.arrayContaining(['deploy']));
+          expect(deps.notice).toHaveBeenCalledWith(expect.stringContaining('"phase":"post_upload"'));
+          expect(deps.notice).toHaveBeenCalledWith(expect.stringContaining('"status":403'));
+        }
+      }
+    );
+
+    it('successfully deploys when readPlatformGet is used for EVERY path, recording exactly 14 calls in order (7 preflight + 7 post_upload)', async () => {
+      await ciBuild(deps);
+      (deps.notice as any).mockClear();
+      (deps.runWrangler as any).mockClear();
+
+      const origReadPlatform = deps.readPlatform;
+      const recordedCalls: { path: string; phase: PlatformPhase }[] = [];
+
+      deps.readPlatform = vi.fn().mockImplementation(async (t: ProductionTarget, path: string, phase: PlatformPhase) => {
+        recordedCalls.push({ path, phase });
+        const mockPayload = await origReadPlatform(t, path, phase);
+        const fetchMock = vi.fn().mockResolvedValue(
+          new Response(JSON.stringify(mockPayload), { status: 200 })
+        );
+        return readPlatformGet(t, path, CF_TOKEN, phase, deps.notice, fetchMock);
+      });
+
+      const deployedVersionId = await ciDeploy(deps);
+
+      expect(deployedVersionId).toBe(NEW_VERSION_ID);
+      expect(recordedCalls).toHaveLength(14);
+      expect(recordedCalls.slice(0, 7).map(c => c.phase)).toEqual(Array(7).fill('preflight'));
+      expect(recordedCalls.slice(7, 14).map(c => c.phase)).toEqual(Array(7).fill('post_upload'));
+      expect(deps.notice).not.toHaveBeenCalledWith(expect.stringContaining('"category":'));
     });
   });
 

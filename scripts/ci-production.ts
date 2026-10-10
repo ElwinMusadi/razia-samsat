@@ -13,6 +13,8 @@ const CONFIG = 'wrangler.production.jsonc';
 const NAMESPACE = 'c8ca3a5faf9c4922a6f3f88aaa7ddbb7';
 const SHA = /^[0-9a-f]{40}$/;
 type CommandResult = { status: number | null; stdout: string; stderr: string };
+export type PlatformPhase = 'preflight' | 'post_upload';
+type PlatformFailureCategory = 'http' | 'api_error' | 'timeout' | 'aborted' | 'network' | 'invalid_response' | 'body_too_large';
 export type CiDeps = {
   env: NodeJS.ProcessEnv; root: string; nodeVersion: string; wranglerVersion: string;
   git: (args: string[]) => CommandResult;
@@ -20,7 +22,7 @@ export type CiDeps = {
   build: () => Promise<void>;
   task: (name: 'lint' | 'test' | 'audit', env: NodeJS.ProcessEnv) => { status: number | null };
   runWrangler: CliRunner;
-  readPlatform: (target: ProductionTarget, path: string) => Promise<Record<string, unknown>>;
+  readPlatform: (target: ProductionTarget, path: string, phase: PlatformPhase) => Promise<Record<string, unknown>>;
   notice: (message: string) => void;
 };
 type Hashes = Record<string, string>;
@@ -246,7 +248,7 @@ function verifyBindings(b: unknown, compatDate: unknown, t: ProductionTarget): v
   for(const[name,value]of Object.entries(expected))if(!bindings.some(x=>x.name===name&&x.type==='plain_text'&&x.text===value))fail('Variables runtime berbeda; review terpisah diperlukan.');
 }
 type Active = {id:string;version:string};
-async function platform(deps: CiDeps,t:ProductionTarget):Promise<Active> {
+async function platform(deps: CiDeps,t:ProductionTarget,phase:PlatformPhase):Promise<Active> {
   await verifyResources(t,deps.runWrangler);
   const data=json(await deps.runWrangler(['deployments','list','--name',t.worker,'--json']));
   if(!Array.isArray(data)||!data.length) fail('Worker existing wajib tersedia.');
@@ -256,7 +258,7 @@ async function platform(deps: CiDeps,t:ProductionTarget):Promise<Active> {
   const v=object(active.versions[0]);if(!validId(v.version_id,true)||v.percentage!==100)fail('Versi active harus tunggal100%.');
   const flags=new Map([['confirm-deployment',active.id],['confirm-version',v.version_id],['confirm-hostname-review',t.origin]]);
   await verifyWorker(t,flags,deps.runWrangler);
-  const read=async(path:string)=>{const payload=await deps.readPlatform(t,path);if(payload.success!==true)fail('Metadata platform tidak terverifikasi.');return payload;};
+  const read=async(path:string)=>{const payload=await deps.readPlatform(t,path,phase);if(payload.success!==true)fail('Metadata platform tidak terverifikasi.');return payload;};
   const domains=await read(`/accounts/${t.account}/workers/domains`);
   if(!Array.isArray(domains.result))fail('Custom-domain inventory tidak valid.');
   const attachments=domains.result.map(object).filter(d=>d.hostname===t.hostname);
@@ -273,7 +275,7 @@ async function platform(deps: CiDeps,t:ProductionTarget):Promise<Active> {
 }
 export async function ciDeploy(deps: CiDeps): Promise<string> {
   const sha=context(deps);noFallback(deps);const t=target(deps);readReceipt(deps,sha);
-  const before=await platform(deps,t);
+  const before=await platform(deps,t,'preflight');
   verifyEnv(deps);
   const output=await deps.runWrangler(['versions','upload','--name',t.worker,'--strict','--tag',`git-${sha}`,'--message',`git:${sha}`]);
   if(output.status!==0)fail('Upload gagal/ambigu; tidak ada retry atau aktivasi otomatis.');
@@ -286,7 +288,7 @@ export async function ciDeploy(deps: CiDeps): Promise<string> {
   const runtime = object(resources.script_runtime);
   verifyBindings(resources.bindings, runtime.compatibility_date, t);
   if(context(deps)!==sha)fail('Commit sudah stale setelah upload; tidak diaktifkan.');readReceipt(deps,sha);
-  const after=await platform(deps,t);if(before.id!==after.id||before.version!==after.version)fail('Deployment berubah bersamaan; versi baru tidak diaktifkan.');
+  const after=await platform(deps,t,'post_upload');if(before.id!==after.id||before.version!==after.version)fail('Deployment berubah bersamaan; versi baru tidak diaktifkan.');
   verifyEnv(deps);
   const activated=await deps.runWrangler(['versions','deploy',`${id}@100%`,'--name',t.worker,'--yes','--message',`git:${sha}`]);
   if(activated.status!==0)fail('Aktivasi gagal/ambigu; lakukan diagnosis read-only, bukan retry/rollback otomatis.');
@@ -295,10 +297,140 @@ export async function ciDeploy(deps: CiDeps): Promise<string> {
 export async function ciDryrun(deps: CiDeps): Promise<void> {
   const t = target(deps);await deps.build();const r=await deps.runWrangler(['versions','upload','--name',t.worker,'--dry-run','--strict']);if(r.status!==0)fail('Dry-run version gagal.');deps.notice('Dry-run lokal PASS; bukan deployment.');
 }
+export async function readPlatformGet(
+  target: ProductionTarget,
+  path: string,
+  token: string,
+  phase: PlatformPhase,
+  notice: (message: string) => void,
+  fetcher: typeof fetch = fetch
+): Promise<Record<string, unknown>> {
+  if (phase !== 'preflight' && phase !== 'post_upload') fail('Fase platform tidak dikenal.');
+  if (target.account !== EXPECTED_ACCOUNT || target.worker !== EXPECTED_WORKER || !validId(target.zone) || target.zone.length !== 32 || target.hostname !== EXPECTED_HOSTNAME) fail('Target tidak valid.');
+  const expectedPaths = [
+    `/accounts/${target.account}/workers/domains`,
+    `/zones/${target.zone}/dns_records?name.exact=${encodeURIComponent(target.hostname)}&page=1&per_page=100`,
+    `/zones/${target.zone}`,
+    `/zones/${target.zone}/workers/routes`,
+    `/accounts/${target.account}/workers/scripts/${target.worker}/settings`
+  ];
+  if (!expectedPaths.includes(path)) fail('Path API tidak sesuai scope.');
+  if (!token) fail('Token platform tidak tersedia.');
+
+  const diagnosticPath = path.split('?')[0];
+  const diagnostic = (category: PlatformFailureCategory, status: number | null, codes: number[], requestIDs: Record<string, string|null>) => {
+    notice(JSON.stringify({ method: 'GET', path: diagnosticPath, status, codes, requestIDs, category, phase }));
+  };
+
+  const url = 'https://api.cloudflare.com/client/v4' + path;
+  const timeoutSignal = AbortSignal.timeout(15000);
+  // Bound fetch and every body read, even when an injected transport ignores abort.
+  const withinDeadline = <T>(pending: Promise<T>): Promise<T> => new Promise((resolve, reject) => {
+    const cleanup = () => timeoutSignal.removeEventListener('abort', abort);
+    const abort = () => { cleanup(); reject(timeoutSignal.reason); };
+    if (timeoutSignal.aborted) abort();
+    else timeoutSignal.addEventListener('abort', abort, { once: true });
+    void pending.then(value => { cleanup(); resolve(value); }, error => { cleanup(); reject(error); });
+  });
+  const networkCategory = (error: unknown): 'timeout' | 'aborted' | 'network' => {
+    const name = error instanceof Error ? error.name : undefined;
+    return name === 'TimeoutError' ? 'timeout' : name === 'AbortError' ? 'aborted' : 'network';
+  };
+
+  let response: Response;
+  try {
+    response = await withinDeadline(fetcher(url, {
+      method: 'GET',
+      headers: { Authorization: `Bearer ${token}` },
+      redirect: 'error',
+      signal: timeoutSignal
+    }));
+  } catch (err: unknown) {
+    diagnostic(networkCategory(err), null, [], { 'cf-ray': null, 'request-id': null });
+    fail('Platform GET gagal; output tidak ditampilkan.');
+  }
+
+  const header = (name: string, format: RegExp): string | null => {
+    try { const value = response.headers.get(name); return typeof value === 'string' && value.length <= 36 && ![...value].some(c => c.charCodeAt(0) < 32 || c.charCodeAt(0) === 127) && format.test(value) ? value : null; }
+    catch { return null; }
+  };
+  const requestFormat = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+  const requestIDs = {
+    'cf-ray': header('cf-ray', /^[0-9a-f]{16}(?:-[A-Z]{3})?$/i),
+    'request-id': header('request-id', requestFormat) ?? header('x-request-id', requestFormat)
+  };
+  const emitError = (cat: PlatformFailureCategory, codes: number[] = []) => {
+    diagnostic(cat, response.status, codes, requestIDs);
+  };
+
+  if (!response.body) {
+    emitError(response.ok ? 'invalid_response' : 'http');
+    fail('Platform GET gagal; output tidak ditampilkan.');
+  }
+
+  const reader = response.body.getReader();
+  let received = 0;
+  const limit = response.ok ? 1024 * 1024 : 64 * 1024;
+  const buffer = new Uint8Array(limit);
+  let bodyFailure: 'body_too_large' | 'timeout' | 'aborted' | 'network' | undefined;
+  const cancel = () => { try { void reader.cancel().catch(() => {}); } catch { /* No raw cancellation errors. */ } };
+
+  try {
+    while (true) {
+      const { done, value } = await withinDeadline(reader.read());
+      if (done) break;
+      if (value) {
+        if (value.byteLength > limit - received) { bodyFailure = 'body_too_large'; break; }
+        buffer.set(value, received);
+        received += value.byteLength;
+      }
+    }
+  } catch (err: unknown) {
+    bodyFailure = networkCategory(err);
+  } finally {
+    if (bodyFailure) cancel();
+    try { reader.releaseLock(); } catch { /* Pending transport reads must not replace the safe diagnostic. */ }
+  }
+  if (bodyFailure) {
+    emitError(response.ok ? bodyFailure : 'http');
+    fail(response.ok && bodyFailure === 'body_too_large' ? 'Metadata melebihi batas.' : 'Platform GET gagal; output tidak ditampilkan.');
+  }
+
+  const text = new TextDecoder().decode(buffer.subarray(0, received));
+  let data: unknown;
+  try {
+    data = JSON.parse(text);
+  } catch {
+    emitError(response.ok ? 'invalid_response' : 'http');
+    fail('Platform GET gagal; output tidak ditampilkan.');
+  }
+  if (!data || typeof data !== 'object' || Array.isArray(data)) {
+    emitError(response.ok ? 'invalid_response' : 'http');
+    fail('Platform GET gagal; output tidak ditampilkan.');
+  }
+  const payload = data as Record<string, unknown>;
+  const codes: number[] = [];
+  if (Array.isArray(payload.errors)) {
+    for (const entry of payload.errors.slice(0, 20)) {
+      if (entry && typeof entry === 'object' && !Array.isArray(entry)) {
+        const code: unknown = entry.code;
+        if (typeof code === 'number' && Number.isSafeInteger(code) && code > 0 && code <= 9999999 && !codes.includes(code) && codes.length < 5) codes.push(code);
+      }
+    }
+  }
+  if (!response.ok) {
+    emitError('http', codes);
+    fail('Platform GET gagal; output tidak ditampilkan.');
+  }
+  if (payload.success !== true) emitError('api_error', codes);
+  return payload;
+}
+
 export function getDefaultDeps(): CiDeps {
   const environment: NodeJS.ProcessEnv = Object.freeze({ ...process.env });
   const run=(command:string,args:string[],env:NodeJS.ProcessEnv=environment):CommandResult=>{const r=spawnSync(command,args,{cwd:PROJECT_ROOT,env,shell:false,encoding:'utf8',stdio:['ignore','pipe','pipe']});return{status:r.status,stdout:r.stdout??'',stderr:r.stderr??''};};
-  return {env:environment,root:PROJECT_ROOT,nodeVersion:process.versions.node,wranglerVersion:JSON.parse(readFileSync(join(PROJECT_ROOT,'node_modules/wrangler/package.json'),'utf8')).version,load:loadProductionConfig,git:args=>run('git',args),build:()=>buildProductionAssets(spawnSync,environment),task:(name,env)=>{const args=name==='audit'?['audit','--audit-level=high','--include=dev']:['run',name==='test'?'test':'lint'];return process.platform==='win32'?run('cmd.exe',['/d','/s','/c',`npm ${args.join(' ')}`],env):run('npm',args,env);},runWrangler:args=>runWrangler(args,environment),notice:m=>process.stdout.write(`${m}\n`),readPlatform:async(t,path)=>{if(!path.startsWith(`/accounts/${t.account}/`)&&!path.startsWith(`/zones/${t.zone}`))fail('API path tidak sesuai scope.');const token=environment.CLOUDFLARE_API_TOKEN;if(!token)fail('Token platform tidak tersedia.');const r=await fetch('https://api.cloudflare.com/client/v4'+path,{method:'GET',headers:{Authorization:`Bearer ${token}`},redirect:'error',signal:AbortSignal.timeout(15000)});if(!r.ok)fail('Platform GET gagal; output tidak ditampilkan.');const bytes=await r.arrayBuffer();if(bytes.byteLength>1024*1024)fail('Metadata melebihi batas.');return object(JSON.parse(new TextDecoder().decode(bytes)));}};
+  const notice = (m: string) => process.stdout.write(`${m}\n`);
+  return {env:environment,root:PROJECT_ROOT,nodeVersion:process.versions.node,wranglerVersion:JSON.parse(readFileSync(join(PROJECT_ROOT,'node_modules/wrangler/package.json'),'utf8')).version,load:loadProductionConfig,git:args=>run('git',args),build:()=>buildProductionAssets(spawnSync,environment),task:(name,env)=>{const args=name==='audit'?['audit','--audit-level=high','--include=dev']:['run',name==='test'?'test':'lint'];return process.platform==='win32'?run('cmd.exe',['/d','/s','/c',`npm ${args.join(' ')}`],env):run('npm',args,env);},runWrangler:args=>runWrangler(args,environment),notice,readPlatform:async(t,path,phase)=>{const token=environment.CLOUDFLARE_API_TOKEN;if(!token)fail('Token platform tidak tersedia.');return readPlatformGet(t,path,token,phase,notice,fetch);}};
 }
 const isMain=process.argv[1]&&resolve(process.argv[1])===fileURLToPath(import.meta.url);
 if(isMain){try{if(process.argv.length!==3)fail('Gunakan build, deploy, atau dryrun tanpa argument tambahan.');const deps=getDefaultDeps();const mode=process.argv[2];if(mode==='build')await ciBuild(deps);else if(mode==='deploy')await ciDeploy(deps);else if(mode==='dryrun')await ciDryrun(deps);else fail('Mode CI tidak dikenal.');}catch(error){process.stderr.write(`${error instanceof ProductionError?error.message:'CI gagal; detail sensitif tidak ditampilkan.'}\n`);process.exitCode=1;}}
