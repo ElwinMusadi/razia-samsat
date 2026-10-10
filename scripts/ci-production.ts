@@ -44,6 +44,16 @@ function verifyEnv(deps: CiDeps): void {
     // Wrangler 4.148.0 WRANGLER_API_ENVIRONMENT vendor supports production/staging; this pipeline production only.
     if (val !== undefined && val !== 'production') fail('Override endpoint platform ditolak.');
   }
+  for (const k of ['CLOUDFLARE_API_BASE_URL', 'CF_API_BASE_URL']) {
+    if (k in env) {
+      const val = env[k];
+      if (val !== undefined && val !== 'https://api.cloudflare.com/client/v4') fail('Override endpoint platform ditolak.');
+    }
+  }
+  if ('CLOUDFLARE_COMPLIANCE_REGION' in env) {
+    const val = env.CLOUDFLARE_COMPLIANCE_REGION;
+    if (val !== undefined && val !== 'public') fail('Override endpoint platform ditolak.');
+  }
 }
 function versions(deps: CiDeps): void {
   if (deps.nodeVersion !== '24.21.0' || deps.wranglerVersion !== '4.148.0') fail('Toolchain wajib Node24.21.0 dan Wrangler4.148.0 yang telah diuji.');
@@ -226,10 +236,7 @@ export async function ciBuild(deps: CiDeps): Promise<Receipt> {
 }
 function noFallback(deps: CiDeps): void {
   if (!deps.env.CLOUDFLARE_API_TOKEN || ['CLOUDFLARE_API_KEY','CLOUDFLARE_EMAIL','CF_API_KEY','CF_EMAIL','CF_API_TOKEN'].some(k=>!!deps.env[k])) fail('Token platform eksplisit wajib; fallback credential ditolak.');
-  if (['CLOUDFLARE_API_BASE_URL','CF_API_BASE_URL'].some(k=>!!deps.env[k])) fail('Override endpoint platform ditolak.');
-  const region = deps.env.CLOUDFLARE_COMPLIANCE_REGION;
-  if (region && region !== 'public') fail('Override endpoint platform ditolak.');
-
+  verifyEnv(deps);
 }
 function verifyBindings(b: unknown, compatDate: unknown, t: ProductionTarget): void {
   if (compatDate !== '2026-10-07' || !Array.isArray(b)) fail('Settings Worker berbeda.');

@@ -657,20 +657,63 @@ describe('ci-production', () => {
 
     it('stops activation if env mutated during postupload check', async () => {
       const origImpl = (deps.readPlatform as any).getMockImplementation();
-      let callCount = 0;
+      let uploaded = false;
+      const origWrangler = deps.runWrangler;
+      deps.runWrangler = vi.fn().mockImplementation(async (args: string[]) => {
+        if (args.includes('upload')) uploaded = true;
+        return origWrangler(args);
+      });
       deps.readPlatform = vi.fn().mockImplementation(async (t, path) => {
-        if (path.includes('domains')) {
-          callCount++;
-          if (callCount === 2) {
-            // Second time is after upload
-            deps.env.WRANGLER_CI_OVERRIDE_NAME = 'mutated2';
-          }
+        if (uploaded && path.includes('domains')) {
+          deps.env.WRANGLER_CI_OVERRIDE_NAME = 'mutated2';
         }
         return origImpl(t, path);
       });
       await expect(ciDeploy(deps)).rejects.toThrow('Override nama Worker ditolak.');
+      expect(deps.runWrangler).toHaveBeenCalledWith(expect.arrayContaining(['upload']));
       expect(deps.runWrangler).not.toHaveBeenCalledWith(expect.arrayContaining(['deploy']));
     });
+
+    const mutationKeys = [
+      'CLOUDFLARE_API_BASE_URL',
+      'CF_API_BASE_URL',
+      'CLOUDFLARE_COMPLIANCE_REGION',
+      'WRANGLER_API_ENVIRONMENT',
+      'CLOUDFLARE_ENV'
+    ];
+
+    for (const key of mutationKeys) {
+      it(`stops upload if ${key} mutated during preflight`, async () => {
+        const origImpl = (deps.readPlatform as any).getMockImplementation();
+        deps.readPlatform = vi.fn().mockImplementation(async (t, path) => {
+          if (path.includes('domains')) {
+            deps.env[key] = 'invalid-mutation';
+          }
+          return origImpl(t, path);
+        });
+        await expect(ciDeploy(deps)).rejects.toThrow('Override endpoint platform ditolak.');
+        expect(deps.runWrangler).not.toHaveBeenCalledWith(expect.arrayContaining(['upload']));
+      });
+
+      it(`stops activation if ${key} mutated during postupload check`, async () => {
+        const origImpl = (deps.readPlatform as any).getMockImplementation();
+        let uploaded = false;
+        const origWrangler = deps.runWrangler;
+        deps.runWrangler = vi.fn().mockImplementation(async (args: string[]) => {
+          if (args.includes('upload')) uploaded = true;
+          return origWrangler(args);
+        });
+        deps.readPlatform = vi.fn().mockImplementation(async (t, path) => {
+          if (uploaded && path.includes('domains')) {
+            deps.env[key] = 'invalid-mutation';
+          }
+          return origImpl(t, path);
+        });
+        await expect(ciDeploy(deps)).rejects.toThrow('Override endpoint platform ditolak.');
+        expect(deps.runWrangler).toHaveBeenCalledWith(expect.arrayContaining(['upload']));
+        expect(deps.runWrangler).not.toHaveBeenCalledWith(expect.arrayContaining(['deploy']));
+      });
+    }
   });
 
   describe('Path policy crossOS cases', () => {
@@ -745,25 +788,96 @@ describe('ci-production', () => {
   });
 
   describe('Environment override tests', () => {
-    const overrides = [
-      { key: 'CLOUDFLARE_API_BASE_URL', value: 'https://custom.api.cloudflare.com' },
-      { key: 'CF_API_BASE_URL', value: 'https://custom.api.cloudflare.com' },
-      { key: 'CLOUDFLARE_ENV', value: 'staging' },
-      { key: 'CLOUDFLARE_COMPLIANCE_REGION', value: 'eu' },
-
+    const canonical = 'https://api.cloudflare.com/client/v4';
+    const invalidEndpoints = [
+      '', ' ', '\t', '\n',
+      `${canonical}/`, `${canonical}?x=1`, `${canonical}#x`,
+      'https://user:pass@api.cloudflare.com/client/v4',
+      'http://api.cloudflare.com/client/v4',
+      'https://example.com/client/v4',
+      'https://api.cloudflare.com.evil.test/client/v4',
+      'https://api.staging.cloudflare.com/client/v4',
+      'HTTPS://API.CLOUDFLARE.COM/CLIENT/V4',
+      'https://api.cloudflare.com/CLIENT/V4',
+      ` ${canonical}`, `${canonical} `
     ];
-    for (const { key, value } of overrides) {
-      it(`fails if ${key} is present`, async () => {
-        deps.env[key] = value;
-        await expect(ciDeploy(deps)).rejects.toThrow('Override endpoint platform ditolak.');
-        expect(deps.readPlatform).not.toHaveBeenCalled();
-        delete deps.env[key];
-      });
+
+    for (const key of ['CLOUDFLARE_API_BASE_URL', 'CF_API_BASE_URL']) {
+      it.each(invalidEndpoints)(
+        `fails if ${key} is invalid %s before any CLI in deploy and build`,
+        async (val) => {
+          deps.env[key] = val;
+          await expect(ciBuild(deps)).rejects.toThrow('Override endpoint platform ditolak.');
+          expect(deps.build).not.toHaveBeenCalled();
+          await expect(ciDeploy(deps)).rejects.toThrow('Override endpoint platform ditolak.');
+          expect(deps.runWrangler).not.toHaveBeenCalled();
+          expect(deps.readPlatform).not.toHaveBeenCalled();
+          delete deps.env[key];
+        }
+      );
     }
 
-    it('allows explicit public region/environment', async () => {
-      deps.env.CLOUDFLARE_COMPLIANCE_REGION = 'public';
-      deps.env.WRANGLER_API_ENVIRONMENT = 'production';
+    it('rejects modern invalid with legacy valid and vice versa', async () => {
+      deps.env.CLOUDFLARE_API_BASE_URL = 'invalid';
+      deps.env.CF_API_BASE_URL = canonical;
+      await expect(ciBuild(deps)).rejects.toThrow('Override endpoint platform ditolak.');
+      await expect(ciDeploy(deps)).rejects.toThrow('Override endpoint platform ditolak.');
+      expect(deps.build).not.toHaveBeenCalled();
+      expect(deps.runWrangler).not.toHaveBeenCalled();
+      expect(deps.readPlatform).not.toHaveBeenCalled();
+      delete deps.env.CLOUDFLARE_API_BASE_URL;
+      delete deps.env.CF_API_BASE_URL;
+
+      deps.env.CLOUDFLARE_API_BASE_URL = canonical;
+      deps.env.CF_API_BASE_URL = 'invalid';
+      await expect(ciBuild(deps)).rejects.toThrow('Override endpoint platform ditolak.');
+      await expect(ciDeploy(deps)).rejects.toThrow('Override endpoint platform ditolak.');
+      expect(deps.build).not.toHaveBeenCalled();
+      expect(deps.runWrangler).not.toHaveBeenCalled();
+      expect(deps.readPlatform).not.toHaveBeenCalled();
+      delete deps.env.CLOUDFLARE_API_BASE_URL;
+      delete deps.env.CF_API_BASE_URL;
+    });
+
+    const invalidRegions = ['', ' ', '\t', '\n', 'fedramp_high', ' public', 'public ', 'PUBLIC'];
+    it.each(invalidRegions)(
+      'fails on invalid region %s',
+      async (val) => {
+        deps.env.CLOUDFLARE_COMPLIANCE_REGION = val;
+        await expect(ciBuild(deps)).rejects.toThrow('Override endpoint platform ditolak.');
+        expect(deps.build).not.toHaveBeenCalled();
+        await expect(ciDeploy(deps)).rejects.toThrow('Override endpoint platform ditolak.');
+        expect(deps.runWrangler).not.toHaveBeenCalled();
+        delete deps.env.CLOUDFLARE_COMPLIANCE_REGION;
+      }
+    );
+
+    it.each(['', ' ', 'staging', 'public', 'production ', ' PRODUCTION'])(
+      'fails on invalid WRANGLER_API_ENVIRONMENT %s',
+      async (val) => {
+        deps.env.WRANGLER_API_ENVIRONMENT = val;
+        await expect(ciBuild(deps)).rejects.toThrow('Override endpoint platform ditolak.');
+        expect(deps.build).not.toHaveBeenCalled();
+        await expect(ciDeploy(deps)).rejects.toThrow('Override endpoint platform ditolak.');
+        expect(deps.runWrangler).not.toHaveBeenCalled();
+        delete deps.env.WRANGLER_API_ENVIRONMENT;
+      }
+    );
+
+    it.each(['', 'staging', 'production'])(
+      'fails on any defined CLOUDFLARE_ENV %s',
+      async (val) => {
+        deps.env.CLOUDFLARE_ENV = val;
+        await expect(ciBuild(deps)).rejects.toThrow('Override endpoint platform ditolak.');
+        expect(deps.build).not.toHaveBeenCalled();
+        await expect(ciDeploy(deps)).rejects.toThrow('Override endpoint platform ditolak.');
+        expect(deps.runWrangler).not.toHaveBeenCalled();
+        delete deps.env.CLOUDFLARE_ENV;
+      }
+    );
+
+    it('allows unset endpoints, regions, environments', async () => {
+      // defaults (unset)
       const configHash = sha256('config-content');
       const lockHash = sha256('lock-content');
       const htmlHash = sha256('html-content');
@@ -783,8 +897,47 @@ describe('ci-production', () => {
         },
       }));
       await expect(ciDeploy(deps)).resolves.toBe(NEW_VERSION_ID);
-      delete deps.env.CLOUDFLARE_COMPLIANCE_REGION;
-      delete deps.env.WRANGLER_API_ENVIRONMENT;
+      await expect(ciBuild(deps)).resolves.toHaveProperty('schemaVersion');
+    });
+
+    it('allows each canonical alias independently and explicit undefined', async () => {
+      deps.env.CLOUDFLARE_API_BASE_URL = canonical;
+      deps.env.CF_API_BASE_URL = undefined;
+      deps.env.CLOUDFLARE_COMPLIANCE_REGION = undefined;
+      deps.env.WRANGLER_API_ENVIRONMENT = 'production';
+
+      const configHash = sha256('config-content');
+      const lockHash = sha256('lock-content');
+      const htmlHash = sha256('html-content');
+
+      mkdirSync(join(tempRoot, '.wrangler'), { recursive: true });
+      writeFileSync(join(tempRoot, '.wrangler', 'ci-gate.json'), JSON.stringify({
+        schemaVersion: 1,
+        sha: COMMIT_SHA,
+        config: configHash,
+        lock: lockHash,
+        sources: {
+          'wrangler.production.jsonc': configHash,
+          'package-lock.json': lockHash,
+        },
+        assets: {
+          'dist/index.html': htmlHash,
+        },
+      }));
+      await expect(ciDeploy(deps)).resolves.toBe(NEW_VERSION_ID);
+      await expect(ciBuild(deps)).resolves.toHaveProperty('schemaVersion');
+
+      delete deps.env.CLOUDFLARE_API_BASE_URL;
+      deps.env.CF_API_BASE_URL = canonical;
+      deps.env.CLOUDFLARE_COMPLIANCE_REGION = 'public';
+
+      await expect(ciDeploy(deps)).resolves.toBe(NEW_VERSION_ID);
+      await expect(ciBuild(deps)).resolves.toHaveProperty('schemaVersion');
+
+      deps.env.CLOUDFLARE_API_BASE_URL = canonical;
+      deps.env.CF_API_BASE_URL = canonical;
+      await expect(ciDeploy(deps)).resolves.toBe(NEW_VERSION_ID);
+      await expect(ciBuild(deps)).resolves.toHaveProperty('schemaVersion');
     });
   });
 
