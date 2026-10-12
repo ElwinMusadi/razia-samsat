@@ -15,6 +15,9 @@ import { RaidHistoryPanel } from './history';
 
 export const LOOKUP_DEBOUNCE_MS = 600;
 
+/** Awalan pelat default: mempercepat pengetikan, tetap bisa dihapus manual via backspace. */
+export const NOPOL_PREFIX = 'DH';
+
 type ScanState =
   | { kind: 'idle' }
   | { kind: 'queued'; nopol: string }
@@ -30,7 +33,7 @@ export function Scanner() {
   const { auth, busy, read, setRaid } = useAuth();
   const raid = auth?.active_raid_session ?? null;
   const input = useRef<HTMLInputElement>(null);
-  const [value, setValue] = useState('');
+  const [value, setValue] = useState(NOPOL_PREFIX);
   const [state, setState] = useState<ScanState>({ kind: 'idle' });
   const current = useRef<ScanState>({ kind: 'idle' });
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -48,6 +51,14 @@ export function Scanner() {
   }, []);
   useEffect(() => () => cancel(), [cancel]);
   const enabled = raid !== null && !busy;
+  // Kursor selalu di akhir teks: petugas langsung mengetik angka setelah prefix DH.
+  const focusEnd = useCallback(() => {
+    const el = input.current;
+    if (!el) return;
+    el.focus();
+    el.setSelectionRange(el.value.length, el.value.length);
+  }, []);
+  useEffect(() => { if (enabled) focusEnd(); }, [enabled, focusEnd]);
   const context = useRef<ScanContext>({ auth, busy });
   const reconciledRaid = useRef<{ auth: AuthState | null; raid: typeof raid } | null>(null);
   useLayoutEffect(() => {
@@ -55,7 +66,7 @@ export function Scanner() {
     context.current = { auth, busy };
     if (previous.auth === auth && previous.busy === busy) return;
     cancel();
-    setValue('');
+    setValue(NOPOL_PREFIX);
     // Preserve only the 409 notice produced by this scanner's own successful reconciliation.
     // All vehicle data, errors and pending work from any other auth/context refresh are discarded.
     const expected = reconciledRaid.current;
@@ -64,7 +75,6 @@ export function Scanner() {
       && auth?.session.expires_at === expected.auth?.session.expires_at && raid === expected.raid && !busy;
     if (!ownReconciliation || current.current.kind !== 'raid-required') apply({ kind: 'idle' });
   }, [auth, busy, raid, cancel, apply]);
-  useEffect(() => { if (enabled) input.current?.focus(); }, [enabled]);
 
   async function lookup(nopol: string) {
     cancel();
@@ -130,17 +140,16 @@ export function Scanner() {
     void lookup(nopol);
   }
   function clear() {
-    cancel(); setValue(''); apply({ kind: 'idle' });
-    input.current?.focus();
+    cancel(); setValue(NOPOL_PREFIX); apply({ kind: 'idle' });
+    focusEnd();
   }
   function retry() {
     if (state.kind === 'idle' || !enabled) return;
     void lookup(state.nopol);
-    input.current?.focus();
+    focusEnd();
   }
 
-  const showHint = value !== '' && normalizeNopol(value) === null;
-  const describedBy = [showHint ? 'nopol-hint' : '', 'nopol-help'].filter(Boolean).join(' ');
+  const describedBy = 'nopol-help';
   return <section aria-labelledby="scanner-title" className="flex flex-col gap-3">
     <div className="scanner-search">
       <h1 id="scanner-title" className="sr-only">Scanner</h1>
@@ -150,11 +159,10 @@ export function Scanner() {
         <NopolInput
           ref={input} id="nopol-input" name="nopol" type="text" value={value} onChange={change} disabled={!enabled}
           autoCapitalize="characters" autoComplete="off" autoCorrect="off" spellCheck={false} inputMode="text" enterKeyHint="search"
-          placeholder="DH 1234 ZZ" aria-describedby={describedBy} aria-invalid={showHint || state.kind === 'input-error'}
-          showClear={enabled && (value !== '' || state.kind !== 'idle')} onClear={clear}
+          placeholder="DH 1234 ZZ" aria-describedby={describedBy} aria-invalid={state.kind === 'input-error'}
+          showClear={enabled && value !== '' && value !== NOPOL_PREFIX} onClear={clear}
         />
         <p id="nopol-help" className="text-sm">Pencarian otomatis setelah selesai mengetik. Tekan Enter untuk mencari segera.</p>
-        {showHint && <p id="nopol-hint" className="text-sm font-medium">Format NOPOL belum valid: maksimal 64 karakter, 1–2 huruf, 1–4 angka, 0–3 huruf, tanpa tanda baca (contoh DH 1234 ZZ).</p>}
       </form>
       {/* The live region stays mounted so screen readers reliably announce loading changes. */}
       <p id="lookup-status" role="status" className={state.kind === 'loading' || state.kind === 'queued' ? 'flex min-h-5 items-center gap-2 text-sm' : 'sr-only'}>
@@ -185,7 +193,7 @@ export function Scanner() {
         <p className="font-semibold">Data kendaraan tidak ditemukan</p>
         <p className="supporting">Periksa kembali NOPOL yang diketik.</p>
       </section>}
-      {raid && state.kind === 'idle' && value === '' && <EmptyState title="Siap memeriksa kendaraan.">Ketik nomor polisi. Hasil pajak dan STNK akan tampil di sini.</EmptyState>}
+      {raid && state.kind === 'idle' && (value === '' || value === NOPOL_PREFIX) && <EmptyState title="Siap memeriksa kendaraan.">Ketik nomor polisi. Hasil pajak dan STNK akan tampil di sini.</EmptyState>}
     </div>
     {state.kind === 'input-error' && <div role="alert" className="error-message flex flex-col gap-1">
       <p className="font-semibold">NOPOL ditolak oleh layanan. Periksa kembali format NOPOL.</p>
