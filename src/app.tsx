@@ -8,7 +8,7 @@ import { Scanner } from './scanner';
 import { HistoryDetailRoute, HistoryListRoute } from './history';
 import { AdminUsersRoute, AdminUserRoute } from './admin';
 import { PwaControls, PwaProvider } from './pwa';
-import { History, LogOut, ScanLine, Shield, MapPin, Circle, UserRound } from 'lucide-react';
+import { ChevronDown, Circle, Download, History, LogOut, MapPin, ScanLine, Shield, UserRound } from 'lucide-react';
 import { Input, PasswordInput } from './components/ui/input';
 import { PageHeader } from './components/ui/layout';
 import { BrandLockup } from './components/ui/brand';
@@ -18,8 +18,8 @@ function ErrorMessage({ children, id = 'operation-error' }: { children: ReactNod
   useEffect(() => { ref.current?.focus(); }, [children]);
   return <p id={id} ref={ref} role="alert" tabIndex={-1} className="error-message">{children}</p>;
 }
-function PageTitle({ children, focusHeading = true }: { children: ReactNode; focusHeading?: boolean }) {
-  return <PageHeader title={children} focusHeading={focusHeading} />;
+function PageTitle({ children, focusHeading = true, operational = false }: { children: ReactNode; focusHeading?: boolean; operational?: boolean }) {
+  return <PageHeader title={children} focusHeading={focusHeading} operational={operational} />;
 }
 function Login() {
   const { auth, login, loading, authError, retry, notice, busy } = useAuth();
@@ -63,7 +63,7 @@ function Login() {
       {error && <ErrorMessage id="login-error">{error}</ErrorMessage>}
       <Button type="submit" disabled={busy || loading || !!authError}>{busy ? 'Sedang masuk…' : 'Masuk'}</Button>
     </form>
-    <details className="installation-disclosure"><summary>Instalasi aplikasi</summary><PwaControls /></details>
+    <details className="installation-disclosure installation-card"><summary className="installation-summary"><Download aria-hidden="true" size={16} className="shrink-0" /><span>Instalasi aplikasi</span><ChevronDown aria-hidden="true" size={16} className="install-chevron ml-auto shrink-0" /></summary><PwaControls /></details>
   </main>;
 }
 function Protected({ children }: { children: ReactNode }) {
@@ -180,7 +180,7 @@ function RaidSetup() {
   }
   function submit(event: FormEvent<HTMLFormElement>) { event.preventDefault(); void perform('start'); }
   return <section className="flex flex-col gap-4">
-    <PageTitle>Sesi razia</PageTitle>
+    <PageTitle operational>Sesi razia</PageTitle>
     {message && <p role="status" aria-live="polite">{message}</p>}
     {error && <ErrorMessage id="raid-error">{error}</ErrorMessage>}
     {needsSync && <><p>Periksa sesi di layanan sebelum mengulangi tindakan.</p><Button variant="outline" disabled={busy} onClick={() => { void perform('sync'); }}>{action === 'sync' ? 'Memeriksa…' : 'Periksa sesi aktif'}</Button></>}
@@ -192,7 +192,7 @@ function RaidSetup() {
         <div><dt>Mulai</dt><dd><time dateTime={new Date(raid.started_at * 1000).toISOString()}>{formatWita(raid.started_at)}</time></dd></div>
       </dl>
       <Button asChild variant="outline"><Link to="/razia/scanner">Buka scanner</Link></Button>
-      <Button disabled={busy || needsSync} onClick={() => { void perform('close'); }}>{action === 'close' ? 'Menutup sesi…' : 'Tutup sesi razia'}</Button>
+      <Button variant="destructive" disabled={busy || needsSync} onClick={() => { void perform('close'); }}>{action === 'close' ? 'Menutup sesi…' : 'Tutup sesi razia'}</Button>
     </section> : <>
       <p>Pilih lokasi dan isi jalur untuk memulai sesi milik Anda.</p>
       {locationsLoading && <p role="status">Memuat lokasi…</p>}

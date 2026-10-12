@@ -228,3 +228,29 @@
   from { opacity: 0; transform: translateY(6px); }
   to { opacity: 1; transform: none; }
 }
+
+/* ============================================================
+   Redesign Fase 4 — kartu instalasi PWA (ADITIF)
+   Elemen <details> dipertahankan: tests/pwa-ui.test.ts mengassert
+   perilaku .open secara eksplisit.
+   ============================================================ */
+@layer components {
+  .installation-card {
+    @apply rounded-md border border-border bg-card p-4;
+  }
+  .installation-card > .installation-summary {
+    @apply flex min-h-12 cursor-pointer list-none items-center gap-2 text-sm font-semibold;
+  }
+  .installation-card > .installation-summary::marker {
+    content: '';
+  }
+  .installation-card > .installation-summary::-webkit-details-marker {
+    display: none;
+  }
+  .install-chevron {
+    transition: transform 160ms ease;
+  }
+  .installation-card[open] .install-chevron {
+    transform: rotate(180deg);
+  }
+}

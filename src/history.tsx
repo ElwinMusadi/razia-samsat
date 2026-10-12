@@ -63,7 +63,7 @@ export function useLatestRequest() {
   return { start, cancel };
 }
 
-function Title({ children }: { children: ReactNode }) { return <PageHeader title={children} />; }
+function Title({ children }: { children: ReactNode }) { return <PageHeader title={children} operational />; }
 function FailureView({ failure, onRetry, disabled }: { failure: Failure; onRetry?: () => void; disabled?: boolean }) {
   if (failure.kind === 'forbidden') return <div role="alert" className="error-message flex flex-col gap-1">
     <p className="font-semibold">Akses ditolak</p>
