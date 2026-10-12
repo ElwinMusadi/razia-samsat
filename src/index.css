@@ -212,11 +212,6 @@
     background: var(--success);
   }
 
-  /* Metadata kecil di footer kartu hasil. */
-  .result-meta {
-    @apply text-xs text-secondary-foreground;
-  }
-
   /* Kemunculan hasil yang tenang; dinonaktifkan oleh
      blok prefers-reduced-motion di atas. */
   .result-enter {

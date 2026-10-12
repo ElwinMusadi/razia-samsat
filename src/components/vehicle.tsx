@@ -1,6 +1,6 @@
 import { SearchCheck, SearchX } from 'lucide-react';
 import { StatusChip, type StatusChipTone } from './ui/status-chip';
-import { formatCalendarDate, formatWita, type VehicleFound, type VehicleLookupResult, type VehicleStatus as Status } from '@/lib/api';
+import { formatCalendarDate, type VehicleFound, type VehicleLookupResult, type VehicleStatus as Status } from '@/lib/api';
 
 /** Lookup outcome and vehicle status intentionally have separate prop domains. */
 export function LookupOutcomeBadge({ outcome }: { outcome: VehicleLookupResult['outcome'] }) {
@@ -44,6 +44,5 @@ export function VehicleResultCard({ result }: { result: VehicleFound }) {
       <div><dt>Tipe</dt><dd>{vehicle.type}</dd></div>
       <div><dt>Warna</dt><dd>{vehicle.color}</dd></div>
     </dl>
-    <p className="result-meta">{result.source} · <time dateTime={result.fetched_at}>{formatWita(Math.floor(new Date(result.fetched_at).getTime() / 1000))}</time></p>
   </article>;
 }

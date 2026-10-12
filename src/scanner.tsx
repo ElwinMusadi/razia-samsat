@@ -141,8 +141,9 @@ export function Scanner() {
 
   const showHint = value !== '' && normalizeNopol(value) === null;
   const describedBy = [showHint ? 'nopol-hint' : '', 'nopol-help'].filter(Boolean).join(' ');
-  return <section aria-label="Pemindai kendaraan" className="flex flex-col gap-3">
+  return <section aria-labelledby="scanner-title" className="flex flex-col gap-3">
     <div className="scanner-search">
+      <h1 id="scanner-title" className="sr-only">Scanner</h1>
       {raid && <SessionBar location={raid.location.name} lane={raid.lane} />}
       <form role="search" aria-label="Cari kendaraan" onSubmit={submit} className="flex flex-col gap-2">
         <label htmlFor="nopol-input" className="font-medium">Nomor polisi (NOPOL)</label>
