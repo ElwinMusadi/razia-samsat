@@ -11,6 +11,7 @@ import { PwaControls, PwaProvider } from './pwa';
 import { History, LogOut, ScanLine, Shield, MapPin, Circle, UserRound } from 'lucide-react';
 import { Input, PasswordInput } from './components/ui/input';
 import { PageHeader } from './components/ui/layout';
+import { BrandLockup } from './components/ui/brand';
 
 function ErrorMessage({ children, id = 'operation-error' }: { children: ReactNode; id?: string }) {
   const ref = useRef<HTMLParagraphElement>(null);
@@ -50,7 +51,7 @@ function Login() {
     } finally { submitting.current = false; }
   }
   return <main className="page-layout login-layout">
-    <div className="login-brand"><p className="app-brand">SAMSAT <span className="font-normal tracking-normal">Kota Kupang</span></p><p className="login-product">Razia Kendaraan</p></div>
+    <div className="login-brand"><BrandLockup /><p className="login-product">Razia Kendaraan</p></div>
     <PageTitle focusHeading={false}>Masuk</PageTitle>
     <p className="supporting">Masuk untuk melanjutkan sesi razia milik Anda.</p>
     {notice && <p role="status">{notice}</p>}
@@ -91,7 +92,7 @@ function Shell({ children }: { children: ReactNode }) {
   const header = <header className="app-header">
       <div className="app-header-row">
         <div className="brand-context">
-          <p className="app-brand">SAMSAT <span className="sr-only">Kota Kupang</span></p>
+          <BrandLockup />
           {auth?.active_raid_session && <span className="session-indicator"><Circle aria-hidden="true" size={8} fill="currentColor" />SESI AKTIF</span>}
         </div>
         <div className="account-actions">
