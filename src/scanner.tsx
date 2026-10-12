@@ -8,7 +8,9 @@ import { useAuth } from './auth';
 import { api, ApiError, isAbort, normalizeNopol, type VehicleFound } from './lib/api';
 import { NopolInput } from './components/nopol-input';
 import { LookupOutcomeBadge, VehicleResultCard } from './components/vehicle';
+import { SessionBar } from './components/session-bar';
 import { EmptyState, Spinner } from './components/ui/layout';
+import { Skeleton } from './components/ui/skeleton';
 import { RaidHistoryPanel } from './history';
 
 export const LOOKUP_DEBOUNCE_MS = 600;
@@ -139,10 +141,9 @@ export function Scanner() {
 
   const showHint = value !== '' && normalizeNopol(value) === null;
   const describedBy = [showHint ? 'nopol-hint' : '', 'nopol-help'].filter(Boolean).join(' ');
-  return <section aria-labelledby="scanner-title" className="flex flex-col gap-3">
+  return <section aria-label="Pemindai kendaraan" className="flex flex-col gap-3">
     <div className="scanner-search">
-      <h1 id="scanner-title" className="scanner-heading">Scanner</h1>
-      {raid && <p className="break-words text-sm font-medium"><span className="sr-only">Sesi razia aktif: </span>{raid.location.name} · Jalur {raid.lane}</p>}
+      {raid && <SessionBar location={raid.location.name} lane={raid.lane} />}
       <form role="search" aria-label="Cari kendaraan" onSubmit={submit} className="flex flex-col gap-2">
         <label htmlFor="nopol-input" className="font-medium">Nomor polisi (NOPOL)</label>
         <NopolInput
@@ -166,6 +167,16 @@ export function Scanner() {
       <Button asChild><Link to="/razia/setup">Buka sesi razia</Link></Button>
     </div>}
     <div aria-live="polite" className="flex flex-col gap-4">
+      {state.kind === 'loading' && <div className="vehicle-result" aria-hidden="true">
+        <Skeleton className="h-4 w-32" />
+        <Skeleton className="h-10 w-56" />
+        <div className="flex flex-wrap gap-2">
+          <Skeleton className="h-8 w-28 rounded-full" />
+          <Skeleton className="h-8 w-28 rounded-full" />
+        </div>
+        <Skeleton className="h-4 w-full" />
+        <Skeleton className="h-4 w-3/4" />
+      </div>}
       {state.kind === 'found' && <VehicleResultCard result={state.result} />}
       {state.kind === 'not-found' && <section className="vehicle-result" aria-labelledby="not-found-nopol">
         <div className="flex flex-wrap items-center justify-between gap-2"><p className="eyebrow">Hasil pemeriksaan</p><LookupOutcomeBadge outcome="NOT_FOUND" /></div>

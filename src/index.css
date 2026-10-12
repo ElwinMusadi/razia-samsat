@@ -194,3 +194,37 @@
 .feature-surface {
   corner-shape: squircle;
 }
+
+/* ============================================================
+   Redesign Fase 2 — layar scanner (ADITIF)
+   ============================================================ */
+@layer components {
+  /* Strip konteks sesi persisten di atas input NOPOL. */
+  .session-bar {
+    @apply flex min-w-0 items-center gap-2 rounded-md border border-border bg-card px-3 py-2 text-sm font-medium;
+  }
+  .session-bar-live {
+    @apply inline-flex shrink-0 items-center gap-1.5 text-xs font-bold;
+    color: var(--success);
+  }
+  .session-bar-dot {
+    @apply inline-block h-2 w-2 shrink-0 rounded-full;
+    background: var(--success);
+  }
+
+  /* Metadata kecil di footer kartu hasil. */
+  .result-meta {
+    @apply text-xs text-secondary-foreground;
+  }
+
+  /* Kemunculan hasil yang tenang; dinonaktifkan oleh
+     blok prefers-reduced-motion di atas. */
+  .result-enter {
+    animation: result-enter 240ms ease-out;
+  }
+}
+
+@keyframes result-enter {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: none; }
+}
