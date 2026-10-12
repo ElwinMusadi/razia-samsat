@@ -60,7 +60,7 @@ it('production registration uses BPAD adapter and actual KV with WITA/no-store/a
   expect(Object.keys(stored).sort()).toEqual(['brand', 'color', 'nopol', 'owner_name', 'provider_fetched_at', 'stnk_due_date', 'tax_due_date', 'type']);
   const snapshot = await db.prepare('SELECT * FROM check_logs').first();
   expect(snapshot).toMatchObject({ raid_session_id: 'raid', user_id: 'user', idempotency_key: body.request_id, nopol: 'DH1234ZZ', outcome: 'FOUND', tax_status: 'EXPIRED', stnk_status: 'UNKNOWN', source: 'LIVE' });
-  expect(Object.keys(snapshot!).sort()).toEqual(['checked_at', 'id', 'idempotency_key', 'nopol', 'outcome', 'raid_session_id', 'source', 'stnk_status', 'tax_status', 'user_id']);
+  expect(Object.keys(snapshot!).sort()).toEqual(['checked_at', 'id', 'idempotency_key', 'nopol', 'outcome', 'raid_session_id', 'source', 'stnk_status', 'tax_status', 'user_id', 'vehicle_brand', 'vehicle_color', 'vehicle_type']);
   expect(snapshot!.checked_at).toBeGreaterThanOrEqual(Math.floor(Date.parse(body.fetched_at)/1000));
   expect(snapshot!.checked_at).toBeLessThanOrEqual(Math.floor(Date.now()/1000));
   const cached = await post({ nopol: 'DH1234ZZ' }); expect(await cached.json()).toMatchObject({ source: 'CACHE', fetched_at: body.fetched_at }); expect(providerCalls).toBe(1);

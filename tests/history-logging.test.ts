@@ -69,7 +69,7 @@ describe('authorized minimal immutable history snapshots with actual D1/KV',()=>
     const response=await success(' dh 1234 zz '); const body=await response.json() as Record<string,unknown>; await flush();
     const [row]=await rows();
     expect(row).toEqual({id:expect.stringMatching(/^[0-9a-f-]{36}$/),raid_session_id:RAID,user_id:'user',idempotency_key:response.headers.get('x-request-id'),nopol:'DH1234ZZ',outcome,tax_status:outcome==='FOUND'?'ACTIVE':null,stnk_status:outcome==='FOUND'?'ACTIVE':null,source:'LIVE',checked_at:Math.floor(EVENT.getTime()/1000),vehicle_brand:outcome==='FOUND'?'Brand':null,vehicle_type:outcome==='FOUND'?'Type':null,vehicle_color:outcome==='FOUND'?'Color':null});
-    expect(Object.keys(row).sort()).toEqual(['checked_at','id','idempotency_key','nopol','outcome','raid_session_id','source','stnk_status','tax_status','user_id']);
+    expect(Object.keys(row).sort()).toEqual(['checked_at','id','idempotency_key','nopol','outcome','raid_session_id','source','stnk_status','tax_status','user_id','vehicle_brand','vehicle_color','vehicle_type']);
     expect(JSON.stringify(row)).not.toMatch(/Synthetic Owner|owner_name|password|token|due_date|raw/);
     if(outcome==='FOUND')expect(body.vehicle).toMatchObject({tax_status:row.tax_status,stnk_status:row.stnk_status});
     else expect(body).toEqual({outcome:'NOT_FOUND',request_id:response.headers.get('x-request-id')});

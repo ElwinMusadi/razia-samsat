@@ -100,18 +100,18 @@ async function files(values: Record<string,string | Buffer>, test: (directory:st
       expect(state(db).migrations.map(row=>row.name)).toEqual(sources.map(source=>source.filename));
       expect(state(db).foreignKeyViolations).toEqual([]);
       expect(catalog(db).filter(entry=>entry.type==='table'&&!entry.name.startsWith('sqlite_')&&entry.name!=='d1_migrations')).toHaveLength(6);
-      expect(notices).toHaveLength(3); expect(notices[0]).toContain(sources[0].sha256);
+      expect(notices).toHaveLength(4); expect(notices[0]).toContain(sources[0].sha256);
       for(const path of paths) await expect(readFile(path)).rejects.toThrow();
     },0,false);
   });
-  it.each([0,1,2,3])('resumes valid prefix %s and a second run performs no writes',async prefix=>{
+  it.each([0,1,2,3,4])('resumes valid prefix %s and a second run performs no writes',async prefix=>{
     await fixture(async({store,imports,initializations})=>{
       await runMigrations(store); expect(imports).toEqual(sources.slice(prefix).map(buildMigrationPayload)); expect(initializations()).toBe(0);
       const count=imports.length; await runMigrations(store); expect(imports).toHaveLength(count);
     },prefix);
   });
   it('allows increasing positive metadata IDs with gaps',async()=>{
-    await fixture(async({db,store,imports})=>{ db.exec('UPDATE d1_migrations SET id=id+10;'); await runMigrations(store); expect(imports).toHaveLength(1); },2);
+    await fixture(async({db,store,imports})=>{ db.exec('UPDATE d1_migrations SET id=id+10;'); await runMigrations(store); expect(imports).toHaveLength(1); },3);
   });
   it('refuses application schema without metadata and never initializes a marker',async()=>{
     await fixture(async({store,imports,initializations})=>{await expect(runMigrations(store)).rejects.toThrow(); expect(imports).toEqual([]); expect(initializations()).toBe(0);},1,false);
@@ -144,8 +144,8 @@ async function files(values: Record<string,string | Buffer>, test: (directory:st
      await fixture(async({db,store,imports,notices})=>{
        db.prepare('UPDATE d1_migrations SET applied_at=?').run('2024-02-29 23:59:59');
        await runMigrations(store,{notice:message=>notices.push(message)});
-       expect(imports).toHaveLength(0); expect(notices).toEqual(['Terverifikasi 3 migrasi sudah diterapkan; prefix yang cocok tidak diimpor ulang.']);
-     },3);
+       expect(imports).toHaveLength(0); expect(notices).toEqual(['Terverifikasi 4 migrasi sudah diterapkan; prefix yang cocok tidak diimpor ulang.']);
+     },4);
    });
    it.each(['metadata','table','index','trigger','ghost','internal'])('refuses schema drift in %s',async mode=>{
     await fixture(async({db,store,imports})=>{
@@ -172,7 +172,7 @@ async function files(values: Record<string,string | Buffer>, test: (directory:st
       await expect(runMigrations(store)).rejects.toThrow('prefix teramati=1');
       expect(state(db)).toEqual(before); expect(imports).toHaveLength(1);
       for(const path of paths) await expect(readFile(path)).rejects.toThrow();
-      store.importFile=original; await runMigrations(store); expect(state(db).migrations).toHaveLength(3);
+      store.importFile=original; await runMigrations(store); expect(state(db).migrations).toHaveLength(4);
     },1);
   });
   it('rolls back first-file DDL when its metadata table is missing in a local atomic ingestion',async()=>{
@@ -247,8 +247,8 @@ const output=(value:unknown):CliResult=>({status:0,stdout:JSON.stringify(value),
         return output(rows.map(results=>({success:true,results})));
       };
       await runMigrations(createScratchMigrationStore(scratch(),run));
-      expect(paths).toHaveLength(3); expect(calls.flat().some(args=>args.includes('apply'))).toBe(false);
-      expect(state(db).migrations).toHaveLength(3); for(const path of paths) await expect(readFile(path)).rejects.toThrow();
+      expect(paths).toHaveLength(4); expect(calls.flat().some(args=>args.includes('apply'))).toBe(false);
+      expect(state(db).migrations).toHaveLength(4); for(const path of paths) await expect(readFile(path)).rejects.toThrow();
     },0,false);
   });
   it.each([
