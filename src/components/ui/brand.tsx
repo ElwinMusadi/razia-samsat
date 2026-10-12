@@ -1,25 +1,21 @@
-import { Shield } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 /**
  * BrandMark & BrandLockup — identitas visual aplikasi.
  *
- * Mark perisai dalam kotak rounded memberi aplikasi satu titik visual yang
- * dikenali sekilas, menggantikan brand yang sebelumnya hanya berupa teks.
- *
- * Fondasi Fase 0: komponen ini belum dipakai layar produksi mana pun.
+ * Memakai lambang resmi Provinsi Nusa Tenggara Timur sebagai mark,
+ * dipadukan dengan wordmark SAMSAT Kota Kupang.
  */
 export function BrandMark({ className }: { className?: string }) {
   return (
-    <span
-      aria-hidden="true"
-      className={cn(
-        'flex h-10 w-10 shrink-0 items-center justify-center rounded-[14px] bg-foreground text-primary-foreground',
-        className,
-      )}
-    >
-      <Shield size={22} strokeWidth={2.25} />
-    </span>
+    <img
+      src="/logo-ntt.png"
+      alt="Logo Provinsi Nusa Tenggara Timur"
+      width={40}
+      height={40}
+      draggable={false}
+      className={cn('h-10 w-10 shrink-0 object-contain', className)}
+    />
   );
 }
 
