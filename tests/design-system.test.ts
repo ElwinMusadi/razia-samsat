@@ -29,7 +29,10 @@ describe('approved design foundation', () => {
   });
   it('gives neutral status an explicit white surface for normal-text AA', () => {
     expect(contrast(tokens.neutral, tokens.white)).toBeGreaterThanOrEqual(4.5);
-    expect(css).toContain(".vehicle-status[data-status='UNKNOWN'] { color: var(--neutral); background: var(--card); }");
+    const { container } = render(createElement(VehicleStatus, { status: 'UNKNOWN' }));
+    const chip = container.querySelector('[data-status="UNKNOWN"]')!;
+    expect(chip.className).toMatch(/bg-neutral-muted/);
+    expect(chip.className).not.toMatch(/bg-transparent/);
     expect(css).toContain('--secondary-foreground: color-mix(in srgb, var(--foreground) 76%, var(--background))');
     const secondary = tokens.ink.map((value, index) => value * 0.76 + tokens.canvas[index]! * 0.24);
     expect(contrast(secondary, tokens.canvas)).toBeGreaterThanOrEqual(4.5);

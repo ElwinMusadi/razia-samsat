@@ -68,8 +68,8 @@ describe('authorized minimal immutable history snapshots with actual D1/KV',()=>
     expected=1; if(outcome==='NOT_FOUND')source.mockImplementation(async()=>({outcome:'NOT_FOUND'}));
     const response=await success(' dh 1234 zz '); const body=await response.json() as Record<string,unknown>; await flush();
     const [row]=await rows();
-    expect(row).toEqual({id:expect.stringMatching(/^[0-9a-f-]{36}$/),raid_session_id:RAID,user_id:'user',idempotency_key:response.headers.get('x-request-id'),nopol:'DH1234ZZ',outcome,tax_status:outcome==='FOUND'?'ACTIVE':null,stnk_status:outcome==='FOUND'?'ACTIVE':null,source:'LIVE',checked_at:Math.floor(EVENT.getTime()/1000)});
-    expect(Object.keys(row).sort()).toEqual(['checked_at','id','idempotency_key','nopol','outcome','raid_session_id','source','stnk_status','tax_status','user_id']);
+    expect(row).toEqual({id:expect.stringMatching(/^[0-9a-f-]{36}$/),raid_session_id:RAID,user_id:'user',idempotency_key:response.headers.get('x-request-id'),nopol:'DH1234ZZ',outcome,tax_status:outcome==='FOUND'?'ACTIVE':null,stnk_status:outcome==='FOUND'?'ACTIVE':null,source:'LIVE',checked_at:Math.floor(EVENT.getTime()/1000),vehicle_brand:outcome==='FOUND'?'Brand':null,vehicle_type:outcome==='FOUND'?'Type':null,vehicle_color:outcome==='FOUND'?'Color':null});
+    expect(Object.keys(row).sort()).toEqual(['checked_at','id','idempotency_key','nopol','outcome','raid_session_id','source','stnk_status','tax_status','user_id','vehicle_brand','vehicle_color','vehicle_type']);
     expect(JSON.stringify(row)).not.toMatch(/Synthetic Owner|owner_name|password|token|due_date|raw/);
     if(outcome==='FOUND')expect(body.vehicle).toMatchObject({tax_status:row.tax_status,stnk_status:row.stnk_status});
     else expect(body).toEqual({outcome:'NOT_FOUND',request_id:response.headers.get('x-request-id')});
@@ -154,7 +154,7 @@ describe('D5-02 exact INSERT gate and background failure isolation',()=>{
     if(state==='close'||state==='close-new-raid')await sql("UPDATE raid_sessions SET status='CLOSED',closed_at=max(unixepoch(),started_at) WHERE id=?",RAID);
     if(state==='close-new-raid')await sql("INSERT INTO raid_sessions(id,user_id,location_id,lane) VALUES(?,'user','location','B')",NEXT_RAID);
     release.resolve();await flush();
-    expect(captured).toHaveLength(10);expect(captured.slice(1)).toEqual([RAID,'user',response.headers.get('x-request-id'),'DH1234ZZ','FOUND','ACTIVE','ACTIVE','LIVE',Math.floor(EVENT.getTime()/1000)]);
+    expect(captured).toHaveLength(13);expect(captured.slice(1)).toEqual([RAID,'user',response.headers.get('x-request-id'),'DH1234ZZ','FOUND','ACTIVE','ACTIVE','LIVE',Math.floor(EVENT.getTime()/1000),'Brand','Type','Color']);
     expect((await rows())[0]).toMatchObject({raid_session_id:RAID,checked_at:Math.floor(EVENT.getTime()/1000),tax_status:'ACTIVE'});
     expect(lines.filter(l=>l.includes('history_write_failed'))).toEqual([]);
     if(['inactive','expiry','logout','revoke'].includes(state))expect((await call()).status).toBe(401);

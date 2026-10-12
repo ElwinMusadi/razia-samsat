@@ -1,16 +1,26 @@
-import { CheckCircle2, CircleHelp, CircleX, SearchCheck, SearchX } from 'lucide-react';
-import { cn } from '@/lib/utils';
+import { SearchCheck, SearchX } from 'lucide-react';
+import { StatusChip, type StatusChipTone } from './ui/status-chip';
 import { formatCalendarDate, type VehicleFound, type VehicleLookupResult, type VehicleStatus as Status } from '@/lib/api';
 
 /** Lookup outcome and vehicle status intentionally have separate prop domains. */
 export function LookupOutcomeBadge({ outcome }: { outcome: VehicleLookupResult['outcome'] }) {
   const Icon = outcome === 'FOUND' ? SearchCheck : SearchX;
-  return <span data-outcome={outcome} className="lookup-outcome"><Icon aria-hidden="true" />{outcome === 'FOUND' ? 'Ditemukan' : 'Tidak ditemukan'}</span>;
+  return (
+    <StatusChip tone="neutral" size="compact" icon={Icon} data-outcome={outcome}>
+      {outcome === 'FOUND' ? 'Ditemukan' : 'Tidak ditemukan'}
+    </StatusChip>
+  );
 }
+
+const statusTones: Record<Status, StatusChipTone> = { ACTIVE: 'success', EXPIRED: 'danger', UNKNOWN: 'neutral' };
+const statusLabels: Record<Status, string> = { ACTIVE: 'AKTIF', EXPIRED: 'MATI', UNKNOWN: 'TIDAK DAPAT DITENTUKAN' };
+
 export function VehicleStatus({ status, compact = false }: { status: Status; compact?: boolean }) {
-  const Icon = status === 'ACTIVE' ? CheckCircle2 : status === 'EXPIRED' ? CircleX : CircleHelp;
-  const text = status === 'ACTIVE' ? 'AKTIF' : status === 'EXPIRED' ? 'MATI' : 'TIDAK DAPAT DITENTUKAN';
-  return <span data-status={status} className={cn('vehicle-status', compact && 'vehicle-status-compact')}><Icon aria-hidden="true" /><span>{text}</span></span>;
+  return (
+    <StatusChip tone={statusTones[status]} size={compact ? 'compact' : 'default'} data-status={status}>
+      {statusLabels[status]}
+    </StatusChip>
+  );
 }
 function StatusBlock({ id, label, status, due }: { id: string; label: string; status: Status; due: string | null }) {
   return <section aria-labelledby={id} className="status-block">
@@ -21,7 +31,7 @@ function StatusBlock({ id, label, status, due }: { id: string; label: string; st
 }
 export function VehicleResultCard({ result }: { result: VehicleFound }) {
   const { vehicle } = result;
-  return <article aria-labelledby="result-nopol" className="vehicle-result">
+  return <article aria-labelledby="result-nopol" className="vehicle-result result-enter">
     <div className="flex flex-wrap items-center justify-between gap-2"><p className="eyebrow">Hasil pemeriksaan</p><LookupOutcomeBadge outcome={result.outcome} /></div>
     <h2 id="result-nopol" className="result-nopol">{vehicle.nopol}</h2>
     <div className="status-group">

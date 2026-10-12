@@ -260,36 +260,35 @@ describe('scanner shell and navigation', () => {
 });
 
 describe('scanner lookup flow', () => {
-  it('debounces 600 ms and only issues valid lookups', async () => {
+  it('only issues valid lookups on Enter, never while typing', async () => {
     const input = await ready();
     vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
     fireEvent.change(input, { target: { value: 'dh' } });
-    expect(screen.getByText(/Format NOPOL belum valid/)).toBeTruthy();
     await act(async () => { await vi.advanceTimersByTimeAsync(2000); });
     expect(lookupCalls()).toHaveLength(0);
     fireEvent.change(input, { target: { value: 'dh 1234' } });
-    await act(async () => { await vi.advanceTimersByTimeAsync(300); });
-    fireEvent.change(input, { target: { value: 'dh 1234 zz' } });
-    expect(screen.queryByText(/Format NOPOL belum valid/)).toBeNull();
-    await act(async () => { await vi.advanceTimersByTimeAsync(599); });
+    await act(async () => { await vi.advanceTimersByTimeAsync(2000); });
     expect(lookupCalls()).toHaveLength(0);
-    await act(async () => { await vi.advanceTimersByTimeAsync(1); });
+    fireEvent.change(input, { target: { value: 'dh 1234 zz' } });
+    await act(async () => { await vi.advanceTimersByTimeAsync(2000); });
+    expect(lookupCalls()).toHaveLength(0);
+    fireEvent.submit(input.form!);
     expect(lookupCalls()).toHaveLength(1);
     expect(lookupCalls()[0]![1]!.body).toBe('{"nopol":"DH1234ZZ"}');
     vi.useRealTimers();
     await screen.findByRole('heading', { name: 'DH1234ZZ' });
     expect(lookupCalls()).toHaveLength(1);
   });
-  it.each(['DH-1234', 'DH.1234ZZ', 'DHA1234', 'DH12345', 'DH1234ZZZZ', '1234'])('shows hint without request for invalid %s, including Enter', async value => {
+  it.each(['DH-1234', 'DH.1234ZZ', 'DHA1234', 'DH12345', 'DH1234ZZZZ', '1234'])('ignores invalid %s silently without request, including Enter', async value => {
     await ready();
     await search(value);
-    expect(screen.getByText(/Format NOPOL belum valid/)).toBeTruthy();
-    expect(field().getAttribute('aria-invalid')).toBe('true');
+    expect(screen.queryByText(/Format NOPOL belum valid/)).toBeNull();
+    expect(field().getAttribute('aria-invalid')).toBe('false');
     vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
     await act(async () => { await vi.advanceTimersByTimeAsync(700); });
     expect(lookupCalls()).toHaveLength(0);
   });
-  it('Enter looks up immediately, cancels debounce and does not duplicate', async () => {
+  it('Enter looks up immediately, dismisses the keyboard and does not duplicate', async () => {
     const pending = deferred<Response>();
     const input = await ready(auth(), () => pending.promise);
     vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
@@ -297,6 +296,7 @@ describe('scanner lookup flow', () => {
     fireEvent.submit(input.form!);
     expect(lookupCalls()).toHaveLength(1);
     expect(lookupStatus().textContent).toContain('Mencari data DH1234ZZ');
+    expect(document.activeElement).not.toBe(input);
     fireEvent.submit(input.form!);
     await act(async () => { await vi.advanceTimersByTimeAsync(1000); });
     expect(lookupCalls()).toHaveLength(1);
@@ -305,16 +305,16 @@ describe('scanner lookup flow', () => {
     await screen.findByRole('heading', { name: 'DH1234ZZ' });
     fireEvent.submit(input.form!);
     expect(lookupCalls()).toHaveLength(1);
-    expect(document.activeElement).toBe(input);
+    expect(document.activeElement).not.toBe(input);
   });
-  it('keeps the same live region mounted, compact when idle and visible while queued or loading', async () => {
+  it('keeps the same live region mounted, compact when idle and visible while loading', async () => {
     const pending = deferred<Response>();
     const input = await ready(auth(), () => pending.promise);
     const status = lookupStatus();
     expect(status.className).toBe('sr-only'); expect(status.textContent).toBe('');
     fireEvent.change(input, { target: { value: 'DH1234ZZ' } });
-    expect(lookupStatus()).toBe(status); expect(status.classList.contains('sr-only')).toBe(false);
-    expect(status.classList.contains('min-h-5')).toBe(true); expect(status.textContent).toContain('Menunggu ketikan selesai');
+    expect(lookupStatus()).toBe(status); expect(status.className).toBe('sr-only'); expect(status.textContent).toBe('');
+    expect(lookupCalls()).toHaveLength(0);
     fireEvent.submit(input.form!);
     expect(lookupStatus()).toBe(status); expect(status.textContent).toContain('Mencari data DH1234ZZ');
     expect(status.classList.contains('sr-only')).toBe(false); expect(status.classList.contains('min-h-5')).toBe(true);
@@ -343,7 +343,7 @@ describe('scanner lookup flow', () => {
     expect(card.textContent).not.toMatch(/Data langsung|Data cache|Diambil|Dievaluasi|Keputusan pemeriksaan tetap pada petugas/);
     expect(card.querySelector('time')).toBeNull();
     expect(card.closest('[aria-live="polite"]')).not.toBeNull();
-    expect(document.activeElement).toBe(field());
+    expect(document.activeElement).not.toBe(field());
     expect(screen.queryByText('Data kendaraan tidak ditemukan')).toBeNull();
   });
   it('renders UNKNOWN as neutral text without cache metadata', async () => {
@@ -376,7 +376,7 @@ describe('scanner lookup flow', () => {
     expect(alert.textContent).toContain('Pesan layanan sintetis');
     expect(alert.textContent).not.toContain('req-error');
     expect(screen.queryByText('Data kendaraan tidak ditemukan')).toBeNull();
-    expect(document.activeElement).toBe(field());
+    expect(document.activeElement).not.toBe(field());
   });
   it('handles RAID_SESSION_REQUIRED by reconciling active raid without creating one', async () => {
     await ready(auth(), () => failure(409, 'RAID_SESSION_REQUIRED'), { active_raid_session: null });
@@ -411,7 +411,7 @@ describe('scanner lookup flow', () => {
     expect(alert.textContent).not.toContain('ID permintaan:');
     if (_name !== 'network' && _name !== 'non-json' && _name !== 'invalid response') expect(alert.textContent).toContain('Pesan layanan sintetis');
     expect(screen.queryByText('Data kendaraan tidak ditemukan')).toBeNull();
-    expect(document.activeElement).toBe(field());
+    expect(document.activeElement).not.toBe(field());
     const retry = screen.getByRole('button', { name: 'Coba lagi' });
     expect(retry.className).toContain('min-h-12');
     await userEvent.click(retry);
@@ -439,7 +439,7 @@ describe('scanner lookup flow', () => {
     expect(clear.querySelector('svg[aria-hidden="true"]')).not.toBeNull();
     await user.click(clear);
     expect(lookupSignals[0]!.aborted).toBe(true);
-    expect(field().value).toBe('');
+    expect(field().value).toBe('DH');
     expect(document.activeElement).toBe(field());
     expect(lookupStatus().textContent).toBe('');
     await act(async () => pending.resolve(found()));
@@ -449,7 +449,7 @@ describe('scanner lookup flow', () => {
     await screen.findByRole('alert');
     await user.click(screen.getByRole('button', { name: 'Hapus NOPOL' }));
     expect(screen.queryByRole('alert')).toBeNull();
-    expect(field().value).toBe('');
+    expect(field().value).toBe('DH');
     expect(document.activeElement).toBe(field());
   });
   it('clears an old result as soon as the plate changes', async () => {
@@ -460,7 +460,7 @@ describe('scanner lookup flow', () => {
     expect(screen.queryByRole('article')).toBeNull();
     expect(screen.queryByText('Pemilik Sintetis')).toBeNull();
   });
-  it('clears result even for a whitespace edit and cancels queued lookup with X', async () => {
+  it('clears result even for a whitespace edit and resets with X', async () => {
     await ready();
     await search('DH1234ZZ');
     await screen.findByRole('article');
@@ -470,7 +470,7 @@ describe('scanner lookup flow', () => {
     vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
     await act(async () => { await vi.advanceTimersByTimeAsync(1000); });
     expect(lookupCalls()).toHaveLength(1);
-    expect(field().value).toBe('');
+    expect(field().value).toBe('DH');
     expect(document.activeElement).toBe(field());
   });
   it('clear removes a completed result and allows the same NOPOL again', async () => {
@@ -495,9 +495,10 @@ describe('scanner lookup flow', () => {
     const pasted = 'DH1234ZZ'.padEnd(65, ' ');
     const user = userEvent.setup();
     await user.click(field());
+    field().setSelectionRange(0, field().value.length);
     await user.paste(pasted);
     expect(field().value).toBe(pasted);
-    expect(screen.getByText(/Format NOPOL belum valid/).textContent).toContain('maksimal 64 karakter');
+    expect(screen.queryByText(/Format NOPOL belum valid/)).toBeNull();
     fireEvent.submit(field().form!);
     vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
     await act(async () => { await vi.advanceTimersByTimeAsync(700); });
@@ -514,7 +515,7 @@ describe('scanner lookup flow', () => {
     routes(next, nopol => found(nopol));
     fireEvent(window, new Event('focus'));
     await waitFor(() => expect(screen.queryByRole('article')).toBeNull());
-    expect(field().value).toBe('');
+    expect(field().value).toBe('DH');
     expect(document.body.textContent).not.toContain('Pemilik Sintetis');
     expect(field().disabled).toBe(kind === 'closed raid');
     expect(lookupCalls()).toHaveLength(1);
@@ -529,7 +530,7 @@ describe('scanner lookup flow', () => {
     fireEvent(window, new Event('focus'));
     await screen.findByText(/Jalur jalur baru/);
     expect(lookupSignals[0]!.aborted).toBe(true);
-    expect(field().value).toBe('');
+    expect(field().value).toBe('DH');
     await act(async () => pending.resolve(outcome === 'FOUND' ? found() : failure(outcome === '401' ? 401 : 502, outcome === '401' ? 'AUTHENTICATION_ERROR' : 'UPSTREAM_ERROR')));
     expect(screen.getByTestId('path').textContent).toBe('/razia/scanner');
     expect(screen.queryByRole('article')).toBeNull();
@@ -545,7 +546,7 @@ describe('scanner lookup flow', () => {
     fetchMock.mockImplementation(async input => input === '/api/auth/logout' ? logout.promise : json(auth()));
     fireEvent.click(screen.getByRole('button', { name: 'Keluar' }));
     expect(screen.queryByRole('article')).toBeNull();
-    expect(field().value).toBe('');
+    expect(field().value).toBe('DH');
     expect(field().disabled).toBe(true);
     await act(async () => logout.resolve(failure(500, 'INTERNAL_ERROR')));
     await waitFor(() => expect(field().disabled).toBe(false));
@@ -588,7 +589,7 @@ describe('scanner lookup flow', () => {
     await act(async () => first.resolve(failure(401, 'AUTHENTICATION_ERROR')));
     expect(screen.getByTestId('path').textContent).toBe('/razia/scanner');
     expect(screen.queryByRole('alert')).toBeNull();
-    if (action === 'clear') { expect(field().value).toBe(''); expect(screen.queryByRole('article')).toBeNull(); }
+    if (action === 'clear') { expect(field().value).toBe('DH'); expect(screen.queryByRole('article')).toBeNull(); }
     else expect(screen.getByRole('heading', { name: 'DH2222BB' })).toBeTruthy();
   });
   it('ignores an in-flight lookup after an equivalent auth refresh', async () => {
@@ -601,7 +602,7 @@ describe('scanner lookup flow', () => {
     await waitFor(() => expect(lookupSignals[0]!.aborted).toBe(true));
     await act(async () => pending.resolve(failure(401, 'AUTHENTICATION_ERROR')));
     expect(screen.getByTestId('path').textContent).toBe('/razia/scanner');
-    expect(field().value).toBe('');
+    expect(field().value).toBe('DH');
     expect(screen.queryByRole('alert')).toBeNull();
   });
   it('active reconciliation 401 redirects to login through read()', async () => {

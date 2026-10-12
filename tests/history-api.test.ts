@@ -6,8 +6,8 @@ const location = { id: '11111111-1111-4111-8111-111111111111', name: 'Synthetic 
 const owner = { id: '33333333-3333-4333-8333-333333333333', username: 'synthetic.officer' };
 const raid = { id: RAID, location, lane: 'east lane', status: 'CLOSED', started_at: 1791331200, closed_at: 1791334800, owner };
 const activeRaid = { ...raid, id: '44444444-4444-4444-8444-444444444444', status: 'ACTIVE', closed_at: null };
-const found = { id: '55555555-5555-4555-8555-555555555555', nopol: 'DH1234ZZ', outcome: 'FOUND', tax_status: 'EXPIRED', stnk_status: 'ACTIVE', source: 'CACHE', checked_at: 1791331300 };
-const notFound = { id: '66666666-6666-4666-8666-666666666666', nopol: 'DH1A', outcome: 'NOT_FOUND', tax_status: null, stnk_status: null, source: 'LIVE', checked_at: 1791331250 };
+const found = { id: '55555555-5555-4555-8555-555555555555', nopol: 'DH1234ZZ', outcome: 'FOUND', tax_status: 'EXPIRED', stnk_status: 'ACTIVE', source: 'CACHE', checked_at: 1791331300, vehicle_brand: 'Brand', vehicle_type: 'Type', vehicle_color: 'Color' };
+const notFound = { id: '66666666-6666-4666-8666-666666666666', nopol: 'DH1A', outcome: 'NOT_FOUND', tax_status: null, stnk_status: null, source: 'LIVE', checked_at: 1791331250, vehicle_brand: null, vehicle_type: null, vehicle_color: null };
 const summary = { total_checks: 5, found: 4, not_found: 1, tax_active: 2, tax_expired: 1, tax_unknown: 1 };
 // Opaque synthetic cursor using the full allowed alphabet; the client never decodes it.
 const cursor = 'c3ludGhldGljLWN1cnNvcg_-Az09';
@@ -24,6 +24,12 @@ describe('history parsers', () => {
     expect(parseRaidSummary({ raid_session: raid, summary }, RAID)).toEqual({ raid_session: raid, summary });
     const zeros = { total_checks: 0, found: 0, not_found: 0, tax_active: 0, tax_expired: 0, tax_unknown: 0 };
     expect(parseRaidSummary({ raid_session: raid, summary: zeros }, RAID).summary).toEqual(zeros);
+  });
+  it('reads missing vehicle snapshot fields as null for pre-migration rows', () => {
+    const { vehicle_brand: _b, vehicle_type: _t, vehicle_color: _c, ...legacy } = found;
+    expect(parseHistoryCheckPage({ checks: [legacy], next_cursor: null })).toEqual({
+      checks: [{ ...found, vehicle_brand: null, vehicle_type: null, vehicle_color: null }], next_cursor: null,
+    });
   });
   it('accepts maximum Date-safe epochs and a 64-character opaque cursor without decoding', () => {
     const maximum = 8640000000000;
@@ -74,6 +80,9 @@ describe('history parsers', () => {
     ['NOT_FOUND cache', { checks: [{ ...notFound, source: 'CACHE' }], next_cursor: null }], ['NOT_FOUND missing status', { checks: [{ ...notFound, tax_status: undefined }], next_cursor: null }],
     ['nopol lowercase', { checks: [{ ...found, nopol: 'dh1234zz' }], next_cursor: null }], ['nopol spaces', { checks: [{ ...found, nopol: 'DH 1234 ZZ' }], next_cursor: null }],
     ['nopol punctuation', { checks: [{ ...found, nopol: 'DH-1234' }], next_cursor: null }], ['checked_at float', { checks: [{ ...found, checked_at: 1.25 }], next_cursor: null }],
+    ['FOUND vehicle_type empty', { checks: [{ ...found, vehicle_type: '' }], next_cursor: null }], ['FOUND vehicle_color number', { checks: [{ ...found, vehicle_color: 42 }], next_cursor: null }],
+    ['FOUND vehicle_brand too long', { checks: [{ ...found, vehicle_brand: 'x'.repeat(201) }], next_cursor: null }],
+    ['NOT_FOUND vehicle non-null', { checks: [{ ...notFound, vehicle_brand: 'Brand' }], next_cursor: null }],
     ['checked_at negative', { checks: [{ ...found, checked_at: -5 }], next_cursor: null }], ['id', { checks: [{ ...found, id: 'not-a-uuid' }], next_cursor: null }],
   ])('rejects malformed checks as INVALID_RESPONSE (%s)', (_name, value) => {
     expect(() => parseHistoryCheckPage(value)).toThrow(invalidResponse);
