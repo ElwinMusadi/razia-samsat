@@ -112,22 +112,10 @@
   .scanner-heading { @apply text-2xl font-bold tracking-tight; }
   .nopol-input { @apply min-h-16 pr-14 text-2xl font-bold uppercase tracking-wider; }
   .nopol-clear { @apply absolute inset-y-0 right-0 flex min-h-12 w-14 min-w-12 items-center justify-center rounded-md text-foreground hover:bg-accent; }
-  .lookup-outcome { @apply inline-flex items-center gap-1 rounded-full border border-border bg-neutral-muted px-2 py-1 text-xs font-semibold text-foreground; }
-  .lookup-outcome svg { width: 14px; height: 14px; }
   .vehicle-result { @apply flex min-w-0 flex-col gap-5 rounded-lg border border-border bg-card p-5 text-foreground; }
   .result-nopol { font-family: var(--font-ui); font-size: 40px; font-weight: 800; line-height: 1.05; letter-spacing: -0.025em; overflow-wrap: anywhere; }
-  .vehicle-status { @apply inline-flex max-w-full items-center gap-2 text-base font-bold; }
-  .vehicle-status svg { width: 20px; height: 20px; flex-shrink: 0; }
-  .vehicle-status[data-status='ACTIVE'] { color: var(--success); }
-  .vehicle-status[data-status='EXPIRED'] { color: var(--danger); }
-  .vehicle-status[data-status='UNKNOWN'] { color: var(--neutral); background: var(--card); }
   .development-notice { background: var(--warning-muted); color: var(--foreground); border-bottom: 1px solid var(--border); padding: var(--space-2) var(--space-4); font-size: 12px; text-align: center; }
-  .history-row .lookup-outcome { align-self: flex-start; }
-  .vehicle-status-compact { @apply text-sm; }
-  .vehicle-status-compact svg { width: 16px; height: 16px; }
   .status-group { @apply grid grid-cols-2 gap-3 border-y border-border py-4; }
-  .status-group .vehicle-status { @apply items-start; }
-  .status-group .vehicle-status > span { overflow-wrap: anywhere; }
   .status-block { @apply flex flex-col gap-2; }
   .vehicle-facts { @apply grid grid-cols-1 gap-3; }
   .vehicle-facts dd { @apply font-semibold; }
