@@ -149,3 +149,48 @@
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation-duration: 0.01ms !important; animation-iteration-count: 1 !important; transition-duration: 0.01ms !important; scroll-behavior: auto !important; }
 }
+
+/* ============================================================
+   Redesign Fase 0 — fondasi visual (ADITIF)
+   Aturan baru di bawah ini belum dipakai oleh layar produksi
+   mana pun; aman digabung tanpa mengubah tampilan saat ini.
+   ============================================================ */
+@layer components {
+  /* Heading operasional: Inter penuh, skala lebih rapat.
+     Serif (page-heading) dicadangkan untuk momen brand & empty state. */
+  .page-heading-operational {
+    font-family: var(--font-ui);
+    font-size: 30px;
+    font-weight: 800;
+    line-height: 1.15;
+    letter-spacing: -0.02em;
+    overflow-wrap: anywhere;
+  }
+
+  /* Skeleton shimmer untuk status loading. Dinonaktifkan otomatis
+     oleh blok prefers-reduced-motion di atas. */
+  .skeleton {
+    @apply rounded-md bg-muted;
+    background-image: linear-gradient(
+      100deg,
+      transparent 40%,
+      color-mix(in srgb, var(--foreground) 8%, transparent) 50%,
+      transparent 60%
+    );
+    background-size: 200% 100%;
+    animation: skeleton-shimmer 1.6s linear infinite;
+  }
+}
+
+@keyframes skeleton-shimmer {
+  from { background-position: 200% 0; }
+  to { background-position: -200% 0; }
+}
+
+/* Ciri khas squircle (progressive enhancement): browser yang belum
+   mendukung corner-shape mengabaikan deklarasi ini dan memakai
+   border-radius biasa. */
+.vehicle-result,
+.feature-surface {
+  corner-shape: squircle;
+}
