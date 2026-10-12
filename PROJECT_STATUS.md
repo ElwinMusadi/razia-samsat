@@ -1,12 +1,83 @@
 # Project Status
 
 ## Project
+
 Aplikasi Razia Kendaraan SAMSAT Kota Kupang. Blueprint di `docs/AI Product Blueprint - Aplikasi Razia Kendaraan SAMSAT Kota Kupang.md` merupakan Product/Business Single Source of Truth, dengan keputusan user terbaru sebagai pengganti eksplisit bagian yang berubah.
 
 ## Current Phase
-P9-E.1 — PRODUCTION INITIAL BOOTSTRAP TOOLING PASS (2026-10-09). Tooling, tests lokal dan E2E scratch serta review independen PASS; commit/push sedang difinalisasi. Bootstrap produksi TIDAK dijalankan; command preflight terakhir menyatakan ADMIN/OFFICER/lokasi masih pending. P9-D.4 tetap PASS. Tidak deployment/BPAD/canary dan NOT PRODUCTION READY.
+
+REDESIGN UI/UX + FITUR LAPANGAN SELESAI & MERGE KE MAIN (2026-10-13). Lihat "Redesign UI/UX oleh Muse (2026-10-12 – 2026-10-13)" di bawah. Test 1470/1470 hijau, migrasi D1 0004 teraplikasi (lokal & remote). Kesepakatan baru: pekerjaan selanjutnya langsung di branch `main` (tanpa branch fitur terpisah).
+
+## Redesign UI/UX oleh Muse (2026-10-12 – 2026-10-13)
+
+### Konteks
+
+- User: Elwin Bessiesura (panggil "Elwin"). Stack frontend: React + Tailwind CSS + Vite + shadcn UI. Backend: Cloudflare Pages Functions + D1 (aplikasi sederhana), Laravel + MySQL (menengah/besar).
+- Keluhan user: output UI/UX "sangat standar dan AI Slop" karena tidak bisa merancang UI/UX terlebih dahulu.
+- Pola kerja yang disepakati: Muse merancang + push kode via GitHub API (Muse TIDAK punya clone lokal, TIDAK bisa menjalankan npm/build/test sendiri); Elwin menjalankan npm run typecheck && npm test di mesinnya dan melaporkan hasil. Komunikasi Bahasa Indonesia kasual.
+- Dikerjakan di branch redesign-muse (dibuat dari main @ 4b6158af), di-merge ke main via PR #1 (merge commit 8b2dfc26) pada 2026-10-13 atas instruksi eksplisit Elwin setelah review visual. Rencana lengkap: docs/REDESIGN_PLAN.md.
+
+### Fase 0 — Fondasi visual (commit 61cdf71)
+
+- Komponen baru: StatusChip (badge status ber-tint), Skeleton (loading shimmer), BrandMark/BrandLockup (identitas).
+- Token & utility CSS baru di src/index.css: page-heading-operational, skeleton shimmer, corner-shape squircle.
+
+### Fase 1 — Sistem status (commit 921acbb)
+
+src/components/vehicle.tsx ditulis ulang: VehicleStatus dan LookupOutcomeBadge me-render StatusChip ber-tint; API komponen tidak berubah.
+
+### Fase 2 — Scanner (commit bd616b6, perbaikan test f19b374)
+
+- Komponen baru SessionBar (indikator sesi persisten di atas input NOPOL).
+  Heading "Scanner" redundan dihapus dari visual (section pakai aria-label); h1 sr-only dikembalikan karena test mengassert nama aksesibel "Scanner".
+- Skeleton kartu hasil saat loading; kartu hasil v2 dengan animasi kemunculan.
+  Metadata LIVE/WITA di kartu hasil sempat ditambahkan lalu DICABUT total karena test menegaskan keputusan produk "kartu hasil tanpa metadata".
+
+### Fase 3 — Shell & navigasi (commit cdf7119)
+
+BrandLockup dipakai di header semua layar + halaman login.
+Active state bottom nav diperkuat (tint biru 12%).
+Kontrol akun tetap <details> native karena test mengassert perilaku .open (menu kustom ditunda).
+
+### Fase 4 — Login, sesi, riwayat (commit fb66555)
+
+- Tombol "Tutup sesi razia" menjadi destructive; TANPA dialog konfirmasi karena tests/frontend.test.ts mengassert alur tutup langsung.
+  Heading "Sesi razia"/"Riwayat"/"Detail sesi" pakai skala operasional Inter 28px (halaman login tetap serif).
+- Panel "Instalasi aplikasi" di login menjadi kartu (ikon + chevron), <details> dipertahankan.
+
+### Fase 5 — Cleanup (commit 6608acc, perbaikan fefd966)
+
+- Seluruh CSS mati .vehicle-status* dan .lookup-outcome* dihapus dari index.css.
+  tests/design-system.test.ts diperbarui: assertion "neutral status di atas white surface" kini diverifikasi terhadap StatusChip.
+- Revisi pasca-review visual (Elwin, 2026-10-12)
+  Teks "Format NOPOL belum valid…" dihapus dari bawah input — input invalid diam-diam tidak memicu pencarian (commit 799358e).
+- Input NOPOL default berisi prefix DH; tombol X mengembalikan ke DH (tetap bisa dihapus manual via backspace untuk pelat EB/ED); kursor selalu di akhir teks saat focus; X hanya tampil bila ada yang bisa dibersihkan.
+- Pencarian otomatis (debounce 600ms) DINONAKTIFKAN — insiden lapangan: target DH1823HJ sempat tercari sebagai DH1823 saat user berhenti mengetik, masuk riwayat sebagai hasil palsu. Lookup HANYA via Enter/tombol Cari (commit bbd6fd9).
+- Setelah submit, input di-blur agar keyboard HP tertutup dan hasil terlihat penuh (test diselaraskan: assertion focus setelah search menjadi not.toBe, setelah X tetap toBe).
+  Anti-suggestion: form & input memakai autoComplete="off", autoCorrect="off", spellCheck={false}, autoCapitalize="characters", enterKeyHint="search" (best-effort; beberapa keyboard bisa mengabaikan).
+- Logo resmi Pemprov NTT (2026-10-12/13)
+  Atas permintaan Elwin, lambang Provinsi NTT dipakai sebagai logo aplikasi: public/logo-ntt.png (mark transparan, dipakai BrandMark/BrandLockup di header + login); public/icons/icon-192.png & icon-512.png diganti lambang NTT (ikon PWA + favicon; manifest tidak berubah).
+  src/components/ui/brand.tsx kini me-render <img> bukan ikon perisai generik (lucide Shield dihapus).
+- KRITIS — keterbatasan tooling: tool push Muse (push_files, create_or_update_file) BERSIFAT TEXT-ONLY — string konten selalu di-encode UTF-8 lalu base64 oleh server ("Do not base64-encode it; this server does that"), sehingga file BINER mustahil di-push dengan benar (terbukti via probe 4-byte: FF D8 00 41 mendarat sebagai C3 BF C3 98 00 41; file probe sudah dibersihkan). Akibatnya 3 file PNG sempat tersimpan sebagai teks base64 dan 1 test PWA gagal. Solusi: Elwin menimpa manual ketiga PNG via repo lokal (2026-10-13). Pelajaran: JANGAN pernah klaim file binary benar tanpa verifikasi byte mentah (bukan sekadar hash yang bisa menipu bila di-decode dari representasi yang salah).
+- Fitur riwayat: tipe + warna kendaraan (2026-10-13)
+- Permintaan Elwin: item riwayat compact di halaman scanner tidak lagi menampilkan tanggal/waktu — diganti "tipe • warna" kendaraan (contoh: "Avanza • Hitam"). Tampilan detail riwayat (CheckItem) TIDAK berubah.
+  migrations/0004_check_vehicle.sql: ALTER TABLE check_logs ADD COLUMN vehicle_brand/type/color TEXT (NULL untuk baris lama).
+  worker/lookups.ts: INSERT menyimpan snapshot vehicle.brand/type/color saat FOUND (null saat NOT_FOUND).
+  worker/history.ts: SELECT + type HistoryCheck mencakup 3 kolom baru.
+  src/lib/api.ts: parseHistoryCheck memvalidasi label kendaraan (string 1–200 char atau null; field yang hilang dibaca null untuk kompatibilitas baris pre-migrasi; NOT_FOUND wajib null).
+  src/history.tsx: item compact me-render [vehicle_type, vehicle_color].filter(Boolean).join(' • '), hanya bila ada.
+- Cara apply migrasi: npx wrangler d1 migrations apply DB --local (config default/lokal); npx wrangler d1 migrations apply DB --remote --config wrangler.production.jsonc (database razia-samsat-db). Catatan: nama database hanya ada di wrangler.production.jsonc; wrangler.jsonc default berisi placeholder lokal.
+- Test yang disesuaikan (12 file): skema 13 kolom, fixtures parser + kasus validasi baru, assertion UI "Type • Color", ekspektasi hardcoded jumlah migrasi 3→4 dan daftar kolom 10→13 di production-migrations/history-logging/vehicle-worker-smoke/admin-migration/history-migration.
+  Status validasi
+  1470/1470 test hijau (2026-10-13, 06:26). Satu flaky tercatat: tests/scanner.test.ts > active reconciliation 401… pernah gagal sekali di run penuh lalu lolos 64/64 terisolasi (timing real-timer + userEvent, bukan regresi).
+- Muse tidak bisa menjalankan gates sendiri; Elwin menjalankannya di mesinnya setiap perubahan.
+  File yang diubah/ditambah (ringkas)
+- Baru: src/components/ui/brand.tsx (ditulis ulang), src/components/session-bar.tsx, src/components/ui/skeleton.tsx, src/components/ui/status-chip.tsx, migrations/0004_check_vehicle.sql, public/logo-ntt.png, docs/REDESIGN_PLAN.md.
+  Diubah: src/components/vehicle.tsx, src/scanner.tsx, src/history.tsx, src/app.tsx, src/lib/api.ts, src/index.css, worker/lookups.ts, worker/history.ts, public/icons/icon-192.png, public/icons/icon-512.png, index.html (tidak — manifest/icon path tidak berubah).
+- Test: tests/scanner.test.ts, tests/history-ui.test.ts, tests/history-api.test.ts, tests/history.test.ts, tests/history-logging.test.ts, tests/history-migration.test.ts, tests/admin-migration.test.ts, tests/production-migrations.test.ts, tests/d1.test.ts, tests/vehicle-worker-smoke.test.ts, tests/design-system.test.ts.
 
 ## Hasil P9-E.1 — Tooling Objek Awal Terverifikasi
+
 - Command baru `npm run production:initial -- preflight|apply <empat konfirmasi target>`; apply membutuhkan tambahan `--confirm-initial-objects initial-accounts-and-location`. Target fixed account/Worker/origin/D1UUID; config drift dan inventory berbeda ditolak sebelum I/O mutasi. Mode preflight menggunakan SELECT/PRAGMA melalui snapshot/verifikasi migration read-only, tidak file-import atau migration initialization.
 - Objek fixed: ADMIN elwin.bessiesura, OFFICER yusuf.adoe dan lokasi Jln. El Tari - DPRD Provinsi NTT. Password baru hanya operatorTTY tanpa echo dan confirmation untuk akun pending, dikumpulkan sebelum mutasi, dibandingkan agar dua akun baru berbeda, di-hash dengan nilai konfigurasi10, tidak default/argv/env/chat/fileplaintext/log. Reuse historis tidak dapat dibuktikan tanpa policy/history password; operator wajib menggunakan password produksi baru dan bukandevelopment. PBKDF2=10 tetap user-approved security risk, TTL43200/retentionUNSET/cache/schema/auth unchanged.
 - ADMIN → OFFICER → lokasi dibuat dengan satu ingestion per objek+audit atomik, tidak satu transaksi keseluruhan. Source tidak memuat BEGIN/COMMIT manual. Snapshot dan schema diverifikasi sebelum/sesudah tiap mutasi. Audit actor ADMIN aktif dan target nonce cocok; row hash baru cocok dengan expected private hash tanpa output. No session/raid/history dibuat; semua field minimal sesuai source schema existing.
@@ -20,12 +91,14 @@ P9-E.1 — PRODUCTION INITIAL BOOTSTRAP TOOLING PASS (2026-10-09). Tooling, test
 - Gitfase satucommitmain `feat(prod): add controlled initial accounts bootstrap tooling`; hash dapat diambil `git log -1 --format=%H --grep='^feat(prod): add controlled initial accounts bootstrap tooling$'`. Snapshotstatuspra-commit tidak mengklaim push sudahberhasil; hash/remote verification dilaporkanpadaserahan. ToolingREADYuntukterminaloperator setelahapprovaleksekusiP9-Eterpisah, bukanizinagentmenjalankanapply sekarang.
 
 ## Rencana P9-E.1 — Tooling Terikat Objek Awal
+
 - Target fixed account/D1/Worker/origin produksi yang disetujui, empat konfirmasi eksplisit dan schema/migration verification read-only sebelum mutasi. Mode preflight tanpa password/mutasi; mode apply hanya dijalankan operator setelah task tooling selesai dan ada izin eksekusi terpisah.
 - Scope fixed ADMIN elwin.bessiesura, OFFICER yusuf.adoe dan lokasi Jln. El Tari - DPRD Provinsi NTT; bukan arbitrary CRUD atau endpoint bootstrap. Koleksi password baru melalui terminal TTY tanpa echo dan konfirmasi sebelum mutasi; tidak argv/env/fileplaintext/chat/default, tidak menggunakan development seed.
 - Idempotensi hanya untuk exact identity/role/active/hash valid dan lokasi active tunggal; tidak reset/ubah role/reactivate otomatis. Setiap objek plus audit atomik per ingestion, keseluruhan tiga objek bukan satu transaksi. Partial failure dilaporkan melalui status aman, tidak delete/retry/rollback destruktif.
 - Preflight produksi pada awal task READ-ONLY: account/name/ID cocok, migration0001–0003 applied, users/locations kosong, foreign_keys1 dan violation0. Tidak production mutation, input credential atau bootstrap dilakukan. Node/workerd/scratch tests sintetis akan memvalidasi command sebelum ditawarkan ke operator.
 
 ## Hasil P9-D.4 — Migration Produksi Terverifikasi
+
 - Target aktual: account `04b8b2073be2f1aa21fc6489e0db36f6`, D1 `razia-samsat-db`, ID `6fd6706b-5e09-4b54-aef7-c49a82b38bd1`, binding `DB`, config operator ignored `wrangler.production.jsonc`. Preflight baru menunjukkan metadata kosong, tiga migration pending, tidak ada tabel aplikasi, FK enabled dan tanpa violation. Identitas resource diverifikasi sebelum mutasi; tidak memakai state lama sebagai bukti.
 - Recovery: bookmark Time Travel pra-eksekusi baru diperoleh; export lama 240 byte tetap cocok SHA-256 `12b4d609d563571a2bbe9615dadd52fa835ee6f0e29cdf77ef6c64ca8ec3cb68`. Rehearsal P9-D.4B berhasil replay export dan restore Time Travel pada scratch yang kemudian dihapus. Ini bukti prosedur scratch, bukan restore produksi. Tidak restore otomatis atau menggunakan export kosong untuk menimpa DB populated. Timeout mengharuskan STOP dan snapshot read-only, bukan retry/repair metadata.
 - Command resmi: `npm run production:migrate -- --confirm-account 04b8b2073be2f1aa21fc6489e0db36f6 --confirm-database 6fd6706b-5e09-4b54-aef7-c49a82b38bd1 --confirm-worker razia-samsat --confirm-origin https://tilang.uptdpenda-kupang.web.id`. Wrapper memverifikasi prefix sebelum/sesudah setiap import; SQL migration tidak diubah dan jalur resmi yang gagal `/query` tidak dipakai ulang.
@@ -37,6 +110,7 @@ P9-E.1 — PRODUCTION INITIAL BOOTSTRAP TOOLING PASS (2026-10-09). Tooling, test
 - Perubahan tracked phase ini hanya catatan hasil di PROJECT_STATUS.md dan docs/PRODUCTION_OPERATIONS.md. Tidak SQL/source/config/dependency change. Evidence verifikasi terperinci tersimpan sementara di luar Git. Branch main; commit hasil menggunakan `chore(prod): apply production d1 migration`, hash dapat diperoleh melalui `git log -1 --format=%H --grep='^chore(prod): apply production d1 migration$'`. Snapshot pra-commit ini tidak mengklaim push sudah berhasil; hasil disampaikan setelah HEAD remote diverifikasi.
 
 ## Hasil P9-D.3 — Wrapper Migrasi File Terverifikasi
+
 - Root cause P9-D.2 digunakan tanpa mengubah SQL: remote /query gagal pada trigger asli `user_sessions_insert_guard` (#6 migration0001), sementara file-import byteyangsama berhasil. SQL0001–0003 dan dependency/node_modules tidak diubah. Metadata resmi Wrangler4.148.0 diketahui dari getCreateMigrationsTableQuery/buildMigrationQuery; CLI tidak menyediakan commandmark. File-import biasa tidak mengisi d1_migrations sendiri.
 - Keputusan **OPTION C**: scripts/production-migrations.ts memuat filesangka/namalek­sikaldengan nomorpositifunik, regularpath/UTF8/SHA256, replaySQLite :memory: untukexpectedprefixschema. Payload ingestion=SQLoriginalutuh + suffix INSERTmetadata persisvendor. Bukan standaloneauto-mark/backfill atau protokolschema baru. Inisialisasi metadata memakai commandlist resmi HANYAsetelahaplikasibenar-benar kosong; stateambigu ditolak. Tabelmetadata/ID/name/tanggalUTCvalid/fingerprinttabelindexestriggersFK harussepakat sebelum/sesudah setiapfile.
 - State prefixappliedyangcocok dilaporkan/dilewatkan tanpaimportulang, pendingfile tidakdilewati. File gagal/networkambiguous STOPtanparetry; snapshotbest-effort hanya prefixcounts. Eksekusiulanghuman memeriksa ulang keseluruhanprefix danchecksumsources, tidak repair/drop/reset/markmetadata. Filetemp mode0600 dibersihkan; originalmigrationtidak dipecah/flatten/diubah. LangkahCREATE/DROPsourcedalam0003tetapmigrationapproved yangcopysebelumdrop, bukanpenghapusan dataoperator.
@@ -49,6 +123,7 @@ P9-E.1 — PRODUCTION INITIAL BOOTSTRAP TOOLING PASS (2026-10-09). Tooling, test
 - Filesphase: scripts/production-migrations.ts baru, scripts/production.ts delegation, tests/production-migrations.test.ts baru dan tests/production.test.ts, docs/PRODUCTION_OPERATIONS.md dan PROJECT_STATUS.md. Migrationfiles/productionignoredconfig/package/dependencies/developmentuserchanges tidakdistage atauditimpa. TargetGitmain satucommit `fix(db): harden production d1 migration path`; hash dapatdiperoleh `git log -1 --format=%H --grep='^fix(db): harden production d1 migration path$'`. Snapshotpra-commit tidakmengklaimpushsukses; hasilremote dilaporkan pada penyerahan setelahverifikasi. Tidakdummycommit atauamendPhase8.
 
 ## Corrective lokal P9-B — IN PROGRESS (2026-10-08)
+
 - Instruksi terbaru mengizinkan adaptasi lokal kompatibilitas produksi10, target nama/domain FINAL dan secure-input bootstrap. Provisioning tetap BLOCKED; tidak inventory remote, DNS, token, SQL produksi, migration, deploy, canary BPAD atau mutasi Git.
 - Status563baris dan Blueprint200baris dibaca lengkap sebelum kode. Inventaris Node BEFOREEDIT mencakup semua .ts/.tsx/.json/.jsonc/.md/.sql proyek, kecuali node_modules, .git, .wrangler, dist dan .kilo: **45files/417occurrences/241baris** untuk `100000|1000|PBKDF|iterations` case-insensitive. Grep tanpaTSX235baris; rg tidak tersedia, bukan inventaris kosong.
 - Kategori: produksi3files/13occurrences/6baris (production-config, production bootstrap, example); dev/local5/50/27 (seed/devconfig/defaultconfig/localbootstrap); shared/runtime8/74/48 (hasher/parser, config dynamic, auth/admin serta angka waktu/size nonpassword); fixtures/tests20/175/106 (legacy1000/100000, baseline guards, timeout/epoch); docs/history4/92/44 (runbookcurrent, UATdev, statuskeputusanlama, dokumenusertransportread-only); generatedlocal1/8/5 (Env100000+platformdocs); nonpasswordUI4/5/5 (epochmillisecond). Tidak globalreplace; quota100000/1000, epoch/limits, legacyfixtures dan keputusan historis tidak diubah.
@@ -57,6 +132,7 @@ P9-E.1 — PRODUCTION INITIAL BOOTSTRAP TOOLING PASS (2026-10-09). Tooling, test
 - Tool apply_patch tidak tersedia dalam daftar tools; perubahan memakai dedicated Edit/Write sesuai pola repository, tanpa helper shell yang mengubah file.
 
 ## Keputusan Produksi P9-B FINAL (2026-10-08)
+
 - Account04b8b2073be2f1aa21fc6489e0db36f6, WorkersFree; Worker `razia-samsat`, D1 `razia-samsat-db`, KV `razia-samsat-vehicle-cache`; domain `https://tilang.uptdpenda-kupang.web.id`, zone `uptdpenda-kupang.web.id`. Nama lama berakhiranproduction hanya riwayat/usulan, bukan target terbaru. IDs belum dibuat/ditemukan pada P9-B; tidak diinventaris palsu.
 - `PASSWORD_PBKDF2_ITERATIONS=10` FINAL, USER-APPROVED SECURITY RISK. PBKDF2 adalah Password-Based Key Derivation Function 2. Tidak mengganti diam-diam ke100000. TTL43200/opaque sessions/cookie/ADMINpasswordreset unchanged. Baseline development100000 tidak otomatis diubah oleh keputusan konfigurasi produksi ini.
 - owner_name diKV diizinkan produksi selama300detik; fieldminimalothercontract tetap, noNIK/alamat/BPKB/chassis/engine/rawBPAD. RetentionUNSET, tanpaautopurge. Emergency stop mekanisme baru TIDAK diminta dan ketiadaannya acceptedoperationalrisk; rollback tetap prosedur.
@@ -64,6 +140,7 @@ P9-E.1 — PRODUCTION INITIAL BOOTSTRAP TOOLING PASS (2026-10-09). Tooling, test
 - Lima NOPOL canary yang usertentukan hanya untukfaseberikut; tidaklookup/BPAD/historycanary padaP9-B. Keputusan revisi eksplisit bagian6 memperbolehkan historycanarynormal immutable mengikutiD5-01/D5-02; bagian30 yang masihmeminta isolation merupakan kontradiksi instruksi. Tidak menambahflag/bypass/delete/isolation tanpa klarifikasi; untuksekarang tidakcanary sehingga tidakdiimplementasikan atau memodifikasiD5.
 
 ## Decision Gate P9-B — Bukti dan STOP
+
 - Semua status/Blueprint dibaca, Gitread-only branchmain/HEAD0087b3c6e5a0957f26f54a636bbe41020a700a71; trackedclean sebelumstatusedit, dokumenuserPhase5 tetapuntracked. Tidakpreliminary remote mutation/provisioning atauliveBPAD.
 - `shared/password.ts:6,21–30,84`: minimumexisting1000 dan hashparser4–6digit menolak10. `worker/config.ts:16–19` memetakan nilai ditolak menjadi INTERNAL_ERROR. `scripts/production-config.ts:8–10,44` memaksa namalama/100000; `scripts/production.ts:140,222–223` bootstrap mensyaratkan100000 dan menolakpasswordsementara yangbaru diizinkan.
 - Verifikasi Node puremethod tanpa secret/DB/network: isValidIterations(10)=false, parseIterationsConfig('10')=null, hashPassword(datasintetik,10) RangeErrorInvalidPBKDF2iterationcount. Tidak passwordproduksi dicetak/ditulis atauhashreal dibuat. Ini incompatibility aplikasi/guard, bukan bukti platformWebCrypto menolak10.
@@ -73,14 +150,16 @@ P9-E.1 — PRODUCTION INITIAL BOOTSTRAP TOOLING PASS (2026-10-09). Tooling, test
 - P9-B Validation: kompatibilitasparameterFAIL; provisioning/deployment/migrasi/initialusers/location/HTTPS/resourcebindings belumdijalankan. Tidak fulltestbaru/typecheck/lint/build/audit/dryrunproduction ataucommitpush karenaSTOP. HasiltestsPhase8/P9-A tetaphistoris, bukanPASSP9-B. Fileschanged hanyaPROJECT_STATUS.md.
 
 ### Backend Phase 8 — catatan parsial aktual (2026-10-08)
+
 - Pembacaan lengkap status/Blueprint/Design System serta inspeksi backend selesai. Dependency berlisensi yang disetujui sudah dipasang: @fontsource/inter5.3.0, @fontsource/dm-serif-display5.3.0, lucide-react1.52.0; npm melaporkan0vulnerabilities. Belum ada klaim gate baru.
-- Artefak backend development tersedia: worker/dev-index.ts dan vehicle/development.ts, wrangler.development.jsonc, scripts/development.ts/dev-seed.ts/dev-app.ts, npmdev/dev:seed/dev:reset, docs/DEVELOPMENT_UAT.md, tests/development*.test.ts. Assetsrun_worker_first=true menjaga guard sebelum API/aset; config+persist tetap/local, seed hash100000 idempotent preservasiakun/lokasi, resetconfirmed/physicalpath, initialbuildsebelumwatch/serverloopback. Production index, business rules, auth, migrations dan D5-01/D5-02 tidak diubah.
+- Artefak backend development tersedia: worker/dev-index.ts dan vehicle/development.ts, wrangler.development.jsonc, scripts/development.ts/dev-seed.ts/dev-app.ts, npmdev/dev:seed/dev:reset, docs/DEVELOPMENT_UAT.md, tests/development\*.test.ts. Assetsrun_worker_first=true menjaga guard sebelum API/aset; config+persist tetap/local, seed hash100000 idempotent preservasiakun/lokasi, resetconfirmed/physicalpath, initialbuildsebelumwatch/serverloopback. Production index, business rules, auth, migrations dan D5-01/D5-02 tidak diubah.
 - Corrective2026-10-08: runLocalWrangler menahan stdout/stderr, memaksa WRANGLER_LOG=error/SANITIZE=true/metricsfalse, logpath temporaryunik danfinallycleanup termasukexception;3regresionlogspy memastikanhapusfolder. Docsviewport360×740danwarningdistshared diperbaiki. Type binding testMiniflare diperbaiki dengan getBindings<Pick<Env,'VEHICLE_CACHE'>> tanpaunsafe cast; unsafe-finally warning diperbaiki.
 - Gate backend aktual terakhir: typecheckexit0/lint0diagnosticexit0; targeted `npx vitest run tests/development.test.ts tests/development-worker.test.ts tests/production.test.ts`3files102/102PASS13,34s, tanpafail/skip. BundleddevelopmentD1/KV nyata: authkeduarole, OFFICER409/ADMINmultisession, raid4scenario, LIVE/CACHE/dedup4/summary4-3-1-1-2-0, admin403/otherhistory404, seedpreserve/FK/collision danproductionbundleabsentdevscenarios/credentials, zerooutbound. `npm run dev:seed` LOCALexit0 denganmessagesafe; tidakresetstateexisting/startserver/remote/BPAD/Git. Fullsuite/browserUAT/buildfinal milikAILead danbelumdiklaimPASS. Catatan102tests ini mendahului corrective assetproduction berikut.
 - CorrectiveassetHIGH2026-10-08: scripts/production.ts menambahkan buildProductionAssets (installedtsc3configs danVitebuild--modeproduction--emptyOutDir) dengan childenv VITE_APP_MODE/NODE_ENVproduction, parentenvtidakdiubah, stdioPIPE/pesangenerik. OperationDependencies.build wajib; dryrun rebuildsebelumbundle, deploy setelahconfig/targetconfirmation dansebelumseluruhremoteinventory/domain/mutasi. Docsoperator/UAT meminta stopdevwatcher danmenjelaskanrawWranglerbypass bukanalurapproved; tidakubahWorkerindex/provider/auth/migrasi/rules.
 - Gatecorrectiveassetakhir: typecheckPASSexit0, lint0diagnosticexit0, targeted `npx vitest run tests/production.test.ts tests/development.test.ts tests/development-worker.test.ts`3files111/111PASS15,72s. Regresi baru9cases memastikanchildenvproduction/canonicalcommands, parentpreserved, failure4stages/exception danbuildorder/noWranglersebelumsuccess. Runawal111PASS26,26s dengantypecheckfixture3TS2345 (generatedProcessEnvrequiredvars), diperbaikitanpaunsafe cast/perubahanEnv, bukanfailurebisnis. gitdiff--checkscope tanpaerror (warningLF/CRLFsaja). Actualproductionassetbuilder tidakdijalankan saatfrontendaktif; tests memakai injectedcommandrunner, bundleddevelopment/productionWorker lokaltetapnyata/zerooutbound. TidakbuildproductionCLI/deploy/remote/BPAD/Gitmutasi/fullsuite/UAT; gateintegrasi/reviewmain masihpending.
 
 ### Rencana dan keputusan implementasi Phase 8
+
 - Urutan: token/primitives/komponen domain → shell/layar → development bootstrap/simulator → UAT nyata browser empat viewport → gates/review → satu commitPhase8/push. Tidak API baru produk atau perubahan rules.
 - LatestUIkontrak supersede visual lama: warna semantic dariDESIGN_SYSTEM, DMSerifDisplay hanyaeditorial/Interoperasional; outcome FOUND/NOT_FOUND terpisah dari ACTIVE/EXPIRED/UNKNOWN; NOPOLanchorbesar, statuslokal bukanfullredgreen cards. NavScanner/Sesi/Riwayat(+Adminrole), logoutaksiakun bukanbottomnav. Scanner600ms/Enter/X/staleguards dipertahankan.
 - ADMIN+OFFICERdevelopment berarti akunroleADMIN yang juga menjalankan alur petugas sesuaiauthorizedexisting, BUKANrolecombinedbaru. UserADMINelwinbessiesura danOFFICERyusuf.adoe denganpassworddevelopmentyanguserizinkan, hanyaseedlokal dan docsUAT; tidakclient/productionbootstrap/runtime.
@@ -89,6 +168,7 @@ P9-E.1 — PRODUCTION INITIAL BOOTSTRAP TOOLING PASS (2026-10-09). Tooling, test
 - Kage hanyareferensidesain, tidakbranding/aset/copy/pageTinyKPI ataudependensiruntime. ApprovedDESIGN_SYSTEM useruntracked tidakdiubah; bolehcommitkontrak sebagai dokumenPhase8required setelahaudit; docsPhase5userterpisah tetaptidakdistage.
 
 ### Konteks Phase 6 dari user (2026-10-08)
+
 - Kontrak implementasi Phase6 sesudah review Architect GO (keputusan teknis AI Lead, bukan policy organisasi baru): list/detail/create/activate/deactivate/password/reset sesi user ADMIN-only; tanpa rename/role-update/hard-delete/audit-list/lokasiCRUD. Role ADMIN/OFFICER ditentukan saat create. Visibilitas operasional ADMIN memakai history existing.
 - Larang self-deactivation (409 SELF_DEACTIVATION_FORBIDDEN). Aktor exact-session ADMIN aktif wajib diperiksa dalam transaksi mutasi; karena tidak ada role-update/deletion dan actor tidak dapat deactivation sendiri, paling sedikit aktor tetap ADMIN. Race dua admin saling deactivation wajib diuji, bukan alasan mengubah triggers Phase1 untuk melemahkan regresi.
 - Reset password ADMIN (termasuk akun sendiri) merevoke SEMUA sesi target tanpa pengecualian sesi request; jika target diri sendiri clear cookie dan response signed_out=true, UI meminta login ulang. Ini administrasi ADMIN, bukan self-service OFFICER/email recovery. Reset sesi perangkat dapat semua sesi target atau satu sesi spesifik tanpa token/hash; revoke diri sendiri berarti sign-out sesuai sesi yang direvoke. Rekomendasi Architect mengecualikan current-session TIDAK dipakai agar perubahan credential menginvalidasi seluruh sesi.
@@ -103,27 +183,31 @@ P9-E.1 — PRODUCTION INITIAL BOOTSTRAP TOOLING PASS (2026-10-09). Tooling, test
 - Git: branch `main` → `origin/main` (`99bcc12 Initial Commit`); hanya PROJECT_STATUS.md dan Blueprint yang tracked, seluruh source Phase 1–5 untracked.
 
 ### Status Phase 5 (tidak berubah)
+
 PHASE 5 — History & Session Recap BLOCKED — reset gate final gagal pada run kedua (2026-10-07 20:36 UTC). Architecture/Data Contract READY, D5-01/D5-02 APPROVED. Backend/migration/frontend tersedia, tetapi completion belum terpenuhi. Run pertama738 PASS, run kedua737 PASS/1 FAIL EADDRINUSE49298. Run ketiga tidak dijalankan sesuai instruksi STOP jika ada failure. Jangan Phase6/commit/push/deploy.
 
 ### Validation Reset Phase 5 (2026-10-07, 19:24–19:28 UTC)
+
 - Baseline observasional: Node 24.21.0, npm 11.6.4, Wrangler 4.148.0, Miniflare 5.20261006.0-alpha, workerd 1.20261006.1 deduped; tidak ada proses workerd/Vitest/Wrangler repo; TCP TIME_WAIT 32.733 (observasi saja, bukan bukti exhaustion). LastBootUpTime yang terbaca CIM tidak membuktikan restart hari ini; tidak dipakai sebagai klaim.
 - Tiga `npm test` normal berurutan tanpa retry/sleep/filter/skip/preload/perubahan order/paralelisme/dependency/OS:
 
-| Run | Hasil | Tests | Files | Durasi Vitest | EADDRINUSE |
-| --- | --- | ---: | ---: | ---: | --- |
-| 1 | PASS | 620/620 | 18/18 | 71,15 s | Tidak |
-| 2 | PASS | 620/620 | 18/18 | 70,74 s | Tidak |
-| 3 | PASS | 620/620 | 18/18 | 67,73 s | Tidak |
+| Run | Hasil |   Tests | Files | Durasi Vitest | EADDRINUSE |
+| --- | ----- | ------: | ----: | ------------: | ---------- |
+| 1   | PASS  | 620/620 | 18/18 |       71,15 s | Tidak      |
+| 2   | PASS  | 620/620 | 18/18 |       70,74 s | Tidak      |
+| 3   | PASS  | 620/620 | 18/18 |       67,73 s | Tidak      |
 
 - Gate non-test backend AI Lead (19:28–19:31 UTC): typecheck/lint/build PASS (32 modules, JS 320,83 kB/gzip 101,24 kB); `npm run db:migrate:local` menerapkan `0002_history.sql` (8 commands) ke D1 LOCAL; `PRAGMA foreign_key_check` kosong; index/trigger baru ada dan `check_logs_active_user`/`check_logs_raid_time` sudah tidak ada; audit full/produksi 0 vulnerabilities; `npx wrangler deploy --dry-run` PASS 109,00 KiB/gzip 27,76 KiB. Coverage backend diverifikasi terhadap matriks wajib (history/history-logging/history-migration). Frontend Phase 5 sedang dikerjakan Frontend Engineer.
 - Interpretasi: tiga validasi full-suite berurutan PASS pada lingkungan tervalidasi saat ini; isu transport historis tetap risiko residual lingkungan lokal. Root cause tidak diklaim selesai; tidak ada defect repository yang terbukti dan tidak ada perubahan kode untuk transport. Log: `C:\Users\elwin\AppData\Local\Temp\kilo\p5-reset-run1..3.log`.
 
 ## Phase 5 Approved User Decisions (FINAL, 2026-10-07)
+
 - **D5-01 APPROVED:** satu record history = satu NOPOL ternormalisasi UNIK per raid session (`raid_session_id + nopol`). Lookup berulang NOPOL sama dalam raid sama hanya dihitung sekali di history dan rekap; raid berbeda = record baru. FOUND dan NOT_FOUND, LIVE dan CACHE sama-sama eligible. Tanpa heuristik check-cycle, tanpa konfirmasi petugas, tanpa grouping NOPOL berbeda (prefix valid tetap NOPOL berbeda), tanpa identitas history buatan client. Semantik record pertama: snapshot FOUND/NOT_FOUND terotorisasi pertama yang berhasil tersimpan menjadi record; lookup berikutnya tidak membuat record baru dan tidak mengubah snapshot. Dedup hanya untuk history/rekap, bukan perilaku scanner. Total Scan = jumlah NOPOL unik ternormalisasi per raid, bukan jumlah request HTTP dan bukan klaim jumlah kendaraan fisik.
 - **D5-02 APPROVED:** hasil lookup yang sudah lolos auth, raid tertangkap, final revalidation, dan menghasilkan FOUND/NOT_FOUND valid tetap eligible disimpan walau sebelum INSERT asinkron terjadi logout, expiry, revoke sesi, raid ditutup, atau user dinonaktifkan. Kejadian tersebut mencegah pekerjaan baru yang tidak sah, tetapi tidak menghapus/menolak snapshot historis yang sudah sah. User inactive SEBELUM authorization awal/final tetap tidak menghasilkan lookup/log.
 - Tidak ditemukan konflik dengan Blueprint maupun keputusan sebelumnya; tidak ada keputusan bisnis baru yang diperlukan.
 
 ### Adopsi Kontrak Phase 5A (System Architect: GO)
+
 - Review ulang D5-01/D5-02 selesai: READY FOR IMPLEMENTATION, tanpa blocker baru. Usulan lama per-request record/larangan UNIQUE NOPOL di bagian sejarah tidak berlaku; D5-01 terbaru mengikat.
 - Migration0002 menambah UNIQUE `(raid_session_id,nopol)` pertama, drop trigger inactive-user, tambah BEFORE UPDATE immutable, ganti index raid_time dengan `(raid_session_id,checked_at DESC,id DESC)`, tambah index list raid user/time/id dan globaltime/id. FK/kolom/idempotency_key dan UNIQUE teknis lama dipertahankan. `INSERT ... ON CONFLICT(raid_session_id,nopol) DO NOTHING`; bukan ignore semua constraint.
 - Existing data duplikat membuat migration gagal eksplisit, tanpa penghapusan/backfill otomatis. Pemeriksaan D1 LOCAL read-only sebelum perubahan: total check_logs=0 dan tidak ada duplicate raid+nopol. Produksi belum di-deploy; jangan menganggap query lokal membuktikan state produksi. Tidak edit0001 atau BEGIN/COMMIT manual.
@@ -133,6 +217,7 @@ PHASE 5 — History & Session Recap BLOCKED — reset gate final gagal pada run 
 - Frontend `/history` dan `/history/:id`, navRiwayat dengan kontrol44px dan wrappinglabel aman320px. Panel scanner terpisah limit10 + summary, refresh mount/manual/focus/outcome sekali, tanpa timerpoll. Eventualnotice: snapshot pertama tidak berubah/tidak naik urutan saat lookup ulang, status historis bukan status terbaru.
 
 ## Phase 4 Decisions (AI Lead, discovery 4A)
+
 - Scanner = input NOPOL di rute `/razia/scanner` (Blueprint STEP 05/07). Tanpa kamera/OCR/barcode dan tanpa dependency baru: Blueprint tidak mensyaratkannya.
 - FR-01: auto-fetch debounce 600 ms setelah berhenti mengetik, hanya bila NOPOL valid; tanpa tombol "Cari". Enter/`enterKeyHint="search"` memicu lookup segera (tidak menambah request ganda). FR-02: tombol X ≥44px di dalam field, membatalkan request, membersihkan input+hasil, autofocus.
 - Normalisasi client = mirror client-only identik `shared/nopol.ts` (uppercase, hapus `\s`, batas 64, regex sama), dikunci parity test terhadap `normalizeNopol`; tidak mengimpor `shared/` (batas modul `tests/build.test.ts`). Tanda baca tidak dibuang diam-diam. Backend tetap otoritatif.
@@ -144,9 +229,11 @@ PHASE 5 — History & Session Recap BLOCKED — reset gate final gagal pada run 
 - Risiko tercatat: auto-fetch prefix NOPOL yang kebetulan valid memicu lookup BPAD tambahan dan dapat menulis KV (kuota Free 1000 write/hari untuk key berbeda); perilaku diwajibkan Blueprint FR-01, dimitigasi debounce + hanya NOPOL valid.
 
 ## Overall Status
+
 Phase8 selesai implementasi dan validasi lokal: Design System approved, bootstrap/simulator isolated, UAT Chrome empat viewport dan gate31files1127testsPASS. Review akhir source/boundary0Critical/High/Medium/Low tersisa; commit/push satu fase sedang difinalisasi. Persiapan Phase7 tetapdeploymentblocked, resources khusus belum dibuat dan tidak liveBPAD/canary. Riwayat transportPhase5 tidak dihapus atau diklaim fixed.
 
 ## Completed
+
 - Koreksi navigasi Phase 4 (2026-10-07): Shell memakai satu bottom navigation tetap dengan Sesi razia, Scanner kondisional dan Keluar; safe-area dan ruang konten disediakan. Tests terarah 187/187 PASS. Review ulang dan full-suite sesudah koreksi masih pending AI Lead; bukan klaim Phase 4 COMPLETE.
 - Phase 4 frontend selesai lokal: scanner protected `/razia/scanner`, input otomatis debounce 600 ms/Enter/X, parser allowlist ketat, status backend, sumber/waktu WITA, state error terpisah, rekonsiliasi 409, pembatalan konteks dan bottom navigation. Gate penuh AI Lead dan review independen akhir PASS; Android visual/E2E belum dilakukan.
 - Audit Phase 0 oleh AI Lead, System Architect, dan Code Reviewer.
@@ -163,10 +250,12 @@ Phase8 selesai implementasi dan validasi lokal: Design System approved, bootstra
 - High mutasi raid TOCTOU diperbaiki dengan atomic active-session guard dan 20 regresi D1; review ulang PASS WITH NOTES. Runtime tepat compatibility date 2026-10-07 telah diuji tanpa override.
 
 ## In Progress
+
 - Finalisasi audit Git dan commit/push hanya tooling P9-D.3 yangtervalidasi. Tidak ada produksi atau fitur aktif; catatan sesudahnya merupakan sejarah fase sebelumnya.
 - Finalisasi audit Git dan satu commit/push corrective lokal; tidak pekerjaan fitur atau operasi produksi aktif. Catatan sesudahnya adalah riwayat, bukan status blocker patch saat ini.
 
 ### Hasil Corrective Compatibility P9-B (2026-10-08, AI Lead)
+
 - Inventaris sebelum edit Backend Engineer45files/417occurrences/241lines membedakan produksi, development, legacy/tests, docs/generated dan angka nonpassword. Tidak blindreplacement100000/1000. Source produksi memakai minimum10/max100000 dan parser kanonik; malformed/0..9/negative/decimal/NaN/Infinity/exponent/whitespace/leadingzero/excess ditolak. Salt16/hash32/formatpbkdf2-sha256/XOR32 tetap; legacyhash100000 verified tanpa needsRehash/downgrade pada target10.
 - Konfigurasi operator final account04b8b2073be2f1aa21fc6489e0db36f6/Workerrazia-samsat/DBrazia-samsat-db/KVrazia-samsat-vehicle-cache/hosttilang.uptdpenda-kupang.web.id/zoneuptdpenda-kupang.web.id/iterations10/TTL43200/retentionUNSET. Template resourceIDs tetap invalid sampai inventaris aktual; tidak file configoperator yang mengaku siap dibuat. KVTTL source300 tidak diubah. Development/defaultLOCAL100000 dan generatedEnv tidak diubah nilainya; hanya comments stale diselaraskan.
 - Bootstrap hash memakai target.passwordIterations yang berasal validator produksi tepat10; SQLbuilder wajib parameter iterasi cocok, tidak hardcoded100000 atau fallbackpassword. Blacklist literal sementara dicabut sesuai user; input tetap bounded/no-normalization/securestdin/no-echo, tidakargv/env/default/source password. Seeddevelopment tidak diimpor keproduction. No publicbootstrapendpoint, schema/API/auth/D5-01/D5-02/business tetap.
@@ -184,6 +273,7 @@ Phase8 selesai implementasi dan validasi lokal: Design System approved, bootstra
 - Finalisasi satu commit Phase8 dan push setelah audit intendedfiles/secrets. Tidak fitur/deployment aktif; seluruh catatan parsial berikut adalah riwayat dan telah disupersede hasil akhir di bawah.
 
 ### Hasil Akhir Phase 8 (AI Lead, 2026-10-08)
+
 - Design System APPROVED diterapkan: semantic tokens satuCSS, fontInteroperasional/DMSerifeditorial selfhostbesertalisensiOFL/ISC, 48pxcontrols, focus/reduced-motion, wrapperSurface/PageHeader/Input/PasswordInput/Spinner. Komponen domain LookupOutcomeBadge terpisah VehicleStatus; VehicleResultCard NOPOL40sans palingkuat/statuspajakSTNKindependen/infoownerapprovedsekunder/metadatasumberWITA. NOT_FOUND netral tidakMATI; unknownbukanprovideravailability. TanpaTinyKPIbranding/mascot/copy/aset/runtimeKage.
 - Shellnav Scanner/Sesi/Riwayat(+Adminrole), logoutaccountheader, compactactivecontext; login/setup/history/admin/scanner/PWA konsisten warmcanvas/ink/semanticcolors. PwaProvider tunggal menjaga eventinstalasi saatnavigasi; controlsinstalasi/update dalamdisclosureakun/loginfooter bukanbannerpersisten yangmemenuhi scanner. CorrectionMediumdensity aktual320 terselesaikan dan screenshotsfinal ditinjauAILead.
 - `npm run dev` aktualinitiallocalmigrations/idempotentseed/build/watch/Worker127.0.0.1:8787; ADMINelwinbessiesura menjalankan admin+workflowofficer tanpa rolebaru, OFFICERyusuf.adoe tetapsingle-session. SeedCLIduaPASS tidakoverwritepasswordrole/activity existing. `dev:reset -- --confirm-reset` diuji benar menghapus HANYAisolated .wrangler/dev-uat setelahserverstop danreseed; symlink/junction/remote configguards diuji. Credentialdefault hanyascript/docsdevelopment, tidakclient/prodWorker; produksi bootstrap menolakpassworddevelopment.
@@ -209,8 +299,9 @@ Phase8 selesai implementasi dan validasi lokal: Design System approved, bootstra
 - Tidak ada pekerjaan aktif. Persiapan Phase7 sudah committed/pushed; deployment/canary tetap BLOCKED eksternal. Catatan fase sebelumnya tetap sejarah, bukan perintah untuk melanjutkan atau status terbaru.
 
 ### Inventaris Phase 7 (2026-10-08)
+
 - HASIL AKHIR AILead: `npm test`28files1075/1075PASS103,16s tanpa fail/skip/EADDRINUSE (935existing+140Phase7). Typecheck/lint0diagnostic/build35modulesPASS, JS359,88kB/gzip109,97 CSS19,73kB/gzip4,85; nodeSWsyntax/moduleboundaryPASS. MigrationLOCAL No migrations to apply, FKcheckkosong, admin/historyguards/indexes tersedia; no migrationbaru. Auditfullhigh/production0; Wranglerdeploy--dry-run120,78KiB/gzip30,19KiB/assets12PASS, hanya bundlelocal sentinel bukanproductiondeployment.
-- Artefakfinal: scripts/production-config.ts/production.ts, contoh configinvalid, npmproduction:* dan ignoredoperatorconfig/backups; docsPRODUCTION_OPERATIONS.md lengkapchecklist/runbook. Guard konfirmasieksplisitaccount/db/worker/origin, activeDeployment+100%version, DNSexactpagination/workerroutecollision/operatorDNSreview; tidakauto resourcecreation/deletion. Bootstrapemptyusers-only/oneINSERT+scopedaudittriggeratomik, CREATE/DROP independen denganfailcleanupsafe, paswordstdin/hashprotectedfilecleanup, tidakappendpoint.
+- Artefakfinal: scripts/production-config.ts/production.ts, contoh configinvalid, npmproduction:\* dan ignoredoperatorconfig/backups; docsPRODUCTION_OPERATIONS.md lengkapchecklist/runbook. Guard konfirmasieksplisitaccount/db/worker/origin, activeDeployment+100%version, DNSexactpagination/workerroutecollision/operatorDNSreview; tidakauto resourcecreation/deletion. Bootstrapemptyusers-only/oneINSERT+scopedaudittriggeratomik, CREATE/DROP independen denganfailcleanupsafe, paswordstdin/hashprotectedfilecleanup, tidakappendpoint.
 - Targetedfinal implementerproduction86/86PASS3,99s actualD1all3migrations; AILead frontend/PWA456/456PASS40,95s. Guard corrective reviewREADONLY PASS WITH NOTES0Critical/High/Medium/Lowtersisa; remote metadata TOCTOUsnapshotlimitsdocumented. PWA reviewPASS WITH NOTESLowcleanURL dependency verifiedactualWranglerStaticAssetslocal, bukanPages. --yesmigration danallzeroUUIDadminreview falsepositive ditolak.Cachedowner_name policyclarificationMediumtetapdeploymentgate tanpaunilateralAPIchange.
 - PWAfinal: manifest Indonesian/loginstandalone/PNG192512, advisoryoffline503, cache5publicassetallowlistONLY. Tidak API/JSapp/networkHTML/dataoperasional/storageanalytics, noforcedskipWaiting/claim/reload. CTAmanual/Androidguide/update-notice memoryephemeral, noactualofflinevehicledata. Chromeheadlessreal320loginnooverflow/tombol44/storage0 dan SWreadycache5verified, BUKAN Androidphysical/keyboardoutdoor/authenticatedcanary. Trackedservers/profiletemppaths dibersihkan, tidak data produksi.
 - EXTERNAL BLOCKERS: realdedicatedD1/KVIDs/domainzone/endpointapproval, firstADMINcredential/lokasi organisasi melaluioperatorsecurekanal, approvedsmallNOPOLcanaryset, actualFreeCPUmeasurement100000/10ms, authenticatedcookie/security/liveprovider/history/admincanary, Androiddevice, privacyowner_nameKVclarification dan retention/monitoringsink. Semuaremoteactionhanyainventoryread-only; tidak provisioning/deploy/SQLremote/bootstrap/liveBPAD. Accountcredential tersedia bukanizinmenebaktarget ataupassword.
@@ -232,12 +323,14 @@ Phase8 selesai implementasi dan validasi lokal: Design System approved, bootstra
 - Finalisasi Git Phase6 saja; tidak ada pekerjaan fitur aktif. Catatan sesudahnya merupakan riwayat implementasi/validasi, bukan blocker Phase6 saat ini.
 
 ### Persiapan backend Phase 7 lokal (Backend Engineer, 2026-10-08)
+
 - Artefak sudah ditulis: `scripts/production-config.ts`, `scripts/production.ts`, `wrangler.production.example.jsonc`, `docs/PRODUCTION_OPERATIONS.md`, dan `tests/production.test.ts`; package menambah commands `production:*`, `.gitignore` melindungi konfigurasi operator dan backups. Konfigurasi operator aktual belum dibuat/diisi; contoh sengaja tidak valid.
 - Guard lokal strict baseline tepat100000/43200/UNSET, binding DB/VEHICLE_CACHE/ASSETS dan nama intended, root-relative main/assets/migrations; menolak field/binding asing, sentinel/local, endpoint tak dipilih, invocation logs/traces. Mutasi memerlukan konfirmasi account/database/worker/origin serta inventaris read-only ID+nama; deploy memerlukan versi existing ditinjau atau not-found10007+konfirmasi Worker baru, serta metadata zone/customdomain.
 - Bootstrap operator hanya first ADMIN bila seluruh users kosong. CREATE/DROP trigger nonce terpisah; satu INSERT conditional dengan AFTER trigger mengikat user+USER_CREATED audit atomik. Password stdin existing, hash100000/saltacak, SQL temp0600 dan output/log mentah ditahan. Tidak endpoint/masterpassword atau seed lokasi. Tests actual D1 dan guards sudah ditulis, **belum dijalankan** pada catatan parsial ini.
 - Tidak source runtime/frontend/schema/generated types/dependency berubah; tidak remote provision/deploy/migrate/bootstrap/BPAD/canary atau Git mutation. Full-suite/gate produksi belum diverifikasi. Domain/resource IDs/ADMIN/lokasi/dua NOPOL/CPUFree/Android dan klarifikasi owner_name KV tetap blockers; cache existing mengandung owner_name PII sesuai persetujuanPhase3, tidak di-strip diam-diam. Phase5 historis tidak berubah PASS.
 
 ### Hasil Akhir Phase 6 (AI Lead, 2026-10-08)
+
 - Git: branch main, commit implementasi `79763a4dd75a19842d37ed9b27eabd88b549f40a`, pesan `feat(admin): implement user management and operational governance`; 80 files baseline sah melalui Phase6. Push `origin/main` berhasil diverifikasi `git ls-remote origin refs/heads/main` sama dengan hash commit. Dokumen user terpisah docs/PHASE5_LOCAL_TRANSPORT_ANALYSIS_2026-10-08.md tetap untracked, tidak dihapus/diubah/ikutcommit. Catatan hasil Git ini dibuat sesudah commit implementasi dan akan dipersistenkan sebagai commit status terpisah; tidak amend/rewrite riwayat.
 - Backend: list/detail/create/activate/deactivate/password ADMIN-only, list sesi dan revoke-all/revoke-specific; strict DTO/body/query, keyset default20/max50, CSRF dan exact-session/current-role SQL. Tidak role-update/rename/hard-delete/lokasiCRUD/audit-viewer/self-service reset/email recovery. Visibilitas operasional memakai history ADMIN global existing.
 - Migration `0003_admin.sql` diterapkan LOCAL: perluasan action audit, copy data historis sebelum actor guard, immutable UPDATE, FK RESTRICT tetap, index users_created_id. D5-01/D5-02/history/raid ownership tidak berubah. Mutasi dan audit satu transaksi, kegagalan audit rollback; no-op tidak membuat audit baru. Self-deactivation ditolak; race dua admin saling deactivation diuji tanpa menambah trigger yang merusak fixture lama.
@@ -265,14 +358,15 @@ Phase8 selesai implementasi dan validasi lokal: Design System approved, bootstra
 - Forensik lima full-suite selesai: 3PASS/2FAIL, transport gate tetap BLOCKED. Subset dua files juga FAIL laluPASS; root cause tetap belum teridentifikasi. Tidak ada implementasi frontend, perubahan kode tests/produk/dependency, commit atau push. Hasil lengkap dan batas evidence dicatat di bagian berikut.
 
 ### Forensik Transport Phase 5 — Lima Pengukuran (2026-10-07, 14:18–14:39 UTC)
+
 - Scope hanya forensik; D5-01/D5-02 dan arsitektur tidak diubah. `npm test` normal dijalankan lima kali dengan jumlah pengukuran tetap, tidak berhenti ketika failure. Tidak ada perubahan source/tests/config/versi di antaranya. Working tree tetap banyak source untracked dan PROJECT_STATUS.md modified; tidak reset user changes. Tidak mengubah cache/order, retry setting, parallelism, dispatcher, OS, assertions, atau melakukan kill/cooldown.
-| Run | Hasil | File/hook gagal | Port loopback tujuan | Tests PASS/FAIL/setupSKIP | Durasi Vitest |
-| --- | --- | --- | --- | --- | --- |
-| 1 | PASS | Tidak ada | Tidak ada | 620/0/0 | 80,93s |
-| 2 | FAIL | vehicle-worker-smoke beforeAll migration; history-migration upgrade duplicates seed batch; worker-smoke test stored hash/config | 49693 / 49679 / 49653 | 617/2/1 | 83,53s |
-| 3 | PASS | Tidak ada | Tidak ada | 620/0/0 | 91,82s |
-| 4 | PASS | Tidak ada | Tidak ada | 620/0/0 | 94,91s |
-| 5 | FAIL | history.test beforeAll applyTestMigrations/db.batch | 61514 | 557/0/63 | 74,74s |
+  | Run | Hasil | File/hook gagal | Port loopback tujuan | Tests PASS/FAIL/setupSKIP | Durasi Vitest |
+  | --- | --- | --- | --- | --- | --- |
+  | 1 | PASS | Tidak ada | Tidak ada | 620/0/0 | 80,93s |
+  | 2 | FAIL | vehicle-worker-smoke beforeAll migration; history-migration upgrade duplicates seed batch; worker-smoke test stored hash/config | 49693 / 49679 / 49653 | 617/2/1 | 83,53s |
+  | 3 | PASS | Tidak ada | Tidak ada | 620/0/0 | 91,82s |
+  | 4 | PASS | Tidak ada | Tidak ada | 620/0/0 | 94,91s |
+  | 5 | FAIL | history.test beforeAll applyTestMigrations/db.batch | 61514 | 557/0/63 | 74,74s |
 - Timestamps UTC: run1 14:18:07–14:19:29; run2 14:20:14–14:22:38; run3 14:23:24–14:24:57; run4 14:25:42–14:27:19; run5 14:31:41–14:32:57. Wall duration82,21/144,98/93,69/97,04/76,35s, termasuk wrapper/snapshot berbeda dari Vitest. Gaps berasal tindakan diagnostik/orkestrasi, tidak sleep/cooldown yang ditambahkan. Bukan lima PASS consecutive atau gate hijau.
 - Log raw diverifikasi AI Lead di temp `full-suite-1..5.log`, summary `phase5-diagnosis-summary.json`. Run5 duration tepat74,74s dari log, bukan perkiraan74,5s pada laporan subagent. SetupSKIP adalah konsekuensi hook gagal, bukan authoredskip. Run2 failure histories terjadi di seed setelah runtime dibuat, bukan hanya migrationSQL. Tidak ada assertion bisnis yang terbukti gagal: error transport mendahului pemeriksaan terkait.
 - Isolasi individual dua pengukuran tetap perfile: history63/63PASS (wall12,49s dan10,01s), history-migration7/7PASS (wall5,55s dan4,84s). Subset terkecil yang TERAMATI mereproduksi pada investigasi ini adalah dua files `npx vitest run tests/history.test.ts tests/history-migration.test.ts`: pengukuran valid tertangkap1 FAIL69PASS/1FAIL70total10,13s, upgrade compatible seedbatchconnectEADDRINUSE50236; pengukuran2 PASS70/70 11,14s. Tidak mengklaim subset tersebut minimum absolut atau culprit precedingfile teridentifikasi. Percobaan subset awal stdout shell tidak lengkap sehingga tidak diberi count/PASS tambahan.
@@ -300,6 +394,7 @@ Phase8 selesai implementasi dan validasi lokal: Design System approved, bootstra
 - Reproduksi Phase3A: run1 388PASS/66.53s; run2 langsung375PASS/2FAIL/11SKIP/64.81s, connectEADDRINUSE destination51252/51257/51260. Tidak ada workerd/test runner tersisa setelah kedua run. Migrasi lokal sesudah run2 PASS/no migrations. Event Windows Tcpip4227 (08:45:50,08:50:00,08:58:25,09:15:40,09:58:11 lokal) menjelaskan kegagalan outgoing local endpoint reuse/exhaustion; bukti host pressure, belum atribusi source seluruh koneksi. Target-port51260 memiliki banyak TIME_WAIT/PID0, bukan listener yang masih hidup. Masih perlu mengidentifikasi asal churn saat runtime aktif.
 
 ## Phase 3A Diagnostic Findings (2026-10-07, AI Lead)
+
 - Kategori: Windows environment interaction/runtime transport; originator UNRESOLVED. System/Tcpip4227 (08:45:50,08:50:00,08:58:25,09:15:40,09:58:11 lokal) menyatakan outgoing local endpoint reuse karena high connection churn. Syscall gagal `connect`, bukan `listen`. TIME_WAIT25000 >16384 ports sendiri tidak membuktikan exhaustion karena satu port bisa dipakai beberapa tuple. Agent mengukur14683 unique loopback local ports dalam dynamicrange49152..65535 (89.6% occupancy observasional, bukan bukti semua tuple unavailable). Default lifetime TIME_WAIT/registry tidak diverifikasi.
 - Baseline tanpa test/workerd:25000TIME_WAIT; snapshot berikutnya21960IPv4loopbackTIME_WAIT. Pasca sequence25222TIME_WAIT/35LISTEN; tanpa workerd/testnode tersisa. TIME_WAIT PID0 adalah state TCP kernel, bukan bukti proses zombie. Vite repoPID28048 listener5173 masih aktif dan bukan test-owned; tidak diterminasi. Process commands nonrepo tidak disimpan sebagai evidence karena dapat sensitif.
 - Isolated diagnostic tanpa application code/migrasi: temp `C:\Users\elwin\AppData\Local\Temp\kilo\razia-transport-diagnostic.mjs`, Miniflare asli+SELECT1. UTC02:47:03 NodePID29112; UTC02:47:05 workerdPID15552 parent29112. Node listener49658 (loopback service), workerd listener49659 (runtime entry/proxyRPC), Node client49660/49661 menuju49659. SELECT1PASS. UTC02:47:09 mf.dispose selesai: workerd hilang, Node tanpa listener/socket. Script di temp bukan production/repo.
@@ -313,6 +408,7 @@ Phase8 selesai implementasi dan validasi lokal: Design System approved, bootstra
 - Perubahan hanya PROJECT_STATUS.md dan temp diagnostic script. Handoff System Architect/Test Engineer dipakai sejauh evidence; overclaim exhaustion hanya dari count/killall recommendation ditolak. Next: STOP ROOT CAUSE UNRESOLVED; attribution connection-start PID/thread/endpoint dan isolated outbounderror diperlukan sebelum rekomendasi dependency/environment. Sesudah fix sah: tiga consecutivefullPASS+migrasi reproducible+gates+reviewfinal. Jangan Phase4.
 
 ## Phase 3A — Atribusi Koneksi (2026-10-07, 03:16–03:40 UTC)
+
 - Ruang lingkup hanya atribusi: seluruh status/Blueprint dan package-lock, konfigurasi, helper, lifecycle tests dibaca. Tidak ada perubahan source produksi, tests, dependency, schema, dispatcher global, timeout, TTL, OS policy, atau keputusan user. Tidak ada retry/sleep/cooldown/authored skip/live BPAD/deploy/provision. Baseline Test Engineer25693TIME_WAIT; angka sendiri tidak membuktikan seluruh port habis.
 - Hak proses diperiksa: Administrator=False. Get-NetEventSession/PktMon/netsh tersedia, tetapi tracing kernel ETW tidak dijalankan tanpa hak/otorisasi administrator. Tidak ada capture traffic unrelated. Payload/header/cookie/SQL sensitif tidak direkam.
 - Instrumentasi pasif hanya subprocess: preload diagnostics_channel Undici beforeConnect/connected/connectError, net.server.socket, child_process; pencatatan pid/ppid/thread/UTC/endpoint/errorcode. Tidak monkeypatch connect/emit, tidak menambah listener error socket, tidak mengubah dispatcher. Preload TERBUKTI berjalan di worker thread SynchronousFetcher (thread1), bukan diasumsikan. Log observasional tetap menambah overhead I/O; hasil PASS tidak dianggap fix. Workerd native dan seluruh koneksi proses luar belum tercakup channel Node.
@@ -323,10 +419,11 @@ Phase8 selesai implementasi dan validasi lokal: Design System approved, bootstra
 - Korelasi Tcpip4227: query System dalam jendela03:30UTC hingga sesudah eksperimen tidak mengembalikan event4227/4231 BARU. Event historis tetap evidence tekanan host, BUKAN bukti event baru terkait PID52036. Error55936 teramati tanpa eventbaru; causation seluruhchurn→4227 belum terbukti.
 - Klasifikasi: caller Node/Undici loopback connectfailure CONFIRMED padaPID52036/thread0; topologi Node/workerd/proxy dan reuse20requests CONFIRMED; kaitan failure ke D1 Miniflare transport STRONGLY SUPPORTED; penyebab churn1004TIME_WAIT/host25693 dan atribusi seluruh4227 UNRESOLVED. Tidak ada evidence cukup menentukan bugversi, listenercollision, leakcleanup, thirdpartyinterceptor, atau applicationbug. Atribusi satu callerfailed tidak membuktikan caller itu menghasilkan seluruh tekanan port.
 - Versi tetap Node24.21.0/npm11.6.4/Wrangler4.148.0/Miniflare5.20261006.0-alpha/workerd1.20261006.1/Vitest4.1.11/Undici7.29.1 (jsdom8.11.2). Tanpa upgrade/downgrade.
-- File diagnostic-only dipertahankan sementara di `C:\Users\elwin\AppData\Local\Temp\kilo`: razia-attribution-preload.cjs, control.mjs, focused.cjs, summary.cjs, phases.jsonl, log perPID-thread*.jsonl. Tidak di-import produksi; metadata koneksi tanpa payload. Retensi sementara berguna untuk evidence; penghapusan setelah atribusi/upstreamreview tidak memengaruhi repo.
+- File diagnostic-only dipertahankan sementara di `C:\Users\elwin\AppData\Local\Temp\kilo`: razia-attribution-preload.cjs, control.mjs, focused.cjs, summary.cjs, phases.jsonl, log perPID-thread\*.jsonl. Tidak di-import produksi; metadata koneksi tanpa payload. Retensi sementara berguna untuk evidence; penghapusan setelah atribusi/upstreamreview tidak memengaruhi repo.
 - Review independen metode: batasi subscriber perthread, tidak menambah socketerrorhandler atau monkeypatch; pastikan coverage workerthreads empiris; eventhost dan PID0 tidak cukup causality. STOP: ROOT CAUSE TETAP UNRESOLVED. Belum ada perubahan yang layak direkomendasikan. Langkah tepat berikutnya: tracing metadata connect/close berfilterPID/loopback dengan otorisasi administrator terpisah untuk mengukur workerdnative dan processluar, serta snapshot listener live saat exactfailure. Jangan mengubah jaringan/versi untuk mengejarPASS; Phase4 tetap dilarang.
 
 ## Phase 3 Approved User Decisions (menggantikan konflik keputusan Phase 2)
+
 - Target deployment adalah Cloudflare Workers Free Plan; tidak mengasumsikan Paid atau memakai capability Paid-only. Tidak provision/deploy remote. Angka quota/CPU hanya boleh dinyatakan berdasarkan dokumentasi terverifikasi.
 - Tidak implementasi login rate limit sekarang: tanpa WAF dependency, Workers Rate Limiting binding, atau database lockout. Risiko brute-force tetap diketahui; gate rate-limit wajib dari P2-08 dibatalkan untuk scope saat ini oleh user.
 - Baseline konfigurasi disetujui: PASSWORD_PBKDF2_ITERATIONS=100000 dan SESSION_TTL_SECONDS=43200, tidak diubah Phase 3. Ini tidak membuktikan keamanan universal atau CPU compatibility Free; CPU login tetap harus diukur sebelum produksi.
@@ -337,6 +434,7 @@ Phase8 selesai implementasi dan validasi lokal: Design System approved, bootstra
 - Strict scope backend saja; UI/client Phase 2 tidak diubah menjadi scanner, tanpa export/PWA/admin/stats.
 
 ## Phase 3 Architecture Guidance (AI Lead, setelah review System Architect)
+
 - GO backend lokal. Endpoint `POST /api/vehicle-lookups`, body hanya `{nopol}`. AUTH/role ADMIN|OFFICER, CSRF, body limit, no-store dan request ID existing tetap berlaku. Identity tidak diterima dari body.
 - Konteks own ACTIVE raid ditangkap server sebelum cache/provider; sesi persis (id+user), revoked/expiry/is_active/role dan raid id yang sama diperiksa lagi sesudah await sebelum expose hasil. Raid ditutup/diganti selama lookup tidak boleh mengikat hasil ke raid baru. Lokasi inactive sesudah raid dibuka tidak otomatis menutup raid (policy belum disetujui).
 - FOUND HTTP200: `{outcome:'FOUND',vehicle:{nopol,owner_name,brand,type,color,tax_due_date,stnk_due_date,tax_status,stnk_status},source:'LIVE'|'CACHE',fetched_at:ISO_UTC,evaluated_on:WITA_YYYY_MM_DD,request_id}`. NOT_FOUND HTTP200: `{outcome:'NOT_FOUND',request_id}` tanpa vehicle/status. NOT_FOUND business outcome, bukan provider error. Tambahan error minimal `RAID_SESSION_REQUIRED` 409.
@@ -346,6 +444,7 @@ Phase8 selesai implementasi dan validasi lokal: Design System approved, bootstra
 - Verifikasi docs KV https://developers.cloudflare.com/kv/platform/limits/: Free reads100000/hari, writes different keys1000/hari, same key1/detik, operasi/invocation1000. Kegagalan quota/read/write harus degraded LIVE/observable, bukan hasil palsu. CPU lookup tidak melakukan PBKDF2; CPU Free tetap perlu measurement riil, bukan jaminan dari absence hashing.
 
 ## Phase 3 Backend Implementation Notes (Backend Engineer, 2026-10-07)
+
 - Route `POST /api/vehicle-lookups` terdaftar pada Worker produksi; body objek exact `{nopol:string}` saja. Normalizer existing, CSRF/same-origin, body limit 4096, requireAuth + ADMIN/OFFICER, no-store, request ID dipertahankan. Identity tambahan ditolak 400; tanpa raid sendiri ACTIVE menghasilkan `RAID_SESSION_REQUIRED` 409.
 - Satu SELECT D1 JOIN session/user + LEFT JOIN raid memberi snapshot auth dan raid bersama. Menangkap raid.id sebelum KV/provider; exact session.id/user/active/role/revoked/expiry dan captured raid diperiksa lagi sebelum provider pada cache miss serta sesudah await sebelum hasil FOUND/NOT_FOUND. Raid closed lalu raid baru tidak dapat menggantikan captured raid. Auth invalid menghasilkan 401 + clear cookie. Lokasi inactive tidak menginvalidasi raid existing. Revocation setelah snapshot akhir dapat diterima; tidak menjanjikan pembatalan instan global.
 - `createApp(logger, lookupDependencies?)` kompatibel dengan signature logger existing; injection source/clock/cache hanya internal, tanpa endpoint/config mock publik. Default `BpadPublicApiSource` memakai wrapper `(input, init) => fetch(input, init)` karena bare fetch sebagai method private kehilangan receiver workerd (ditemukan bundled test, diperbaiki). Semua hasil custom source diproyeksikan/validasi sebelum response/cache; extras tidak bocor.
@@ -358,6 +457,7 @@ Phase8 selesai implementasi dan validasi lokal: Design System approved, bootstra
 - Keputusan user terbaru mengikat dan supersede historical Phase 2: Workers Free; tanpa loginrate/WAF/lockout/ratebinding; PASSWORD_PBKDF2_ITERATIONS100000 dan SESSION_TTL_SECONDS43200 baseline approved unchanged, bukan validasi universal. Lookup tidak menjalankan PBKDF2; CPU Free lookup/login belum diukur dan tidak dijamin cukup. Password change admin-only Phase 6; tanpa endpoint sekarang.
 
 ## Phase 2 Backend Implementation Notes (Backend Engineer)
+
 - Timestamp API (`session.expires_at`, `started_at`, `closed_at`) = integer epoch DETIK UTC dari jam D1 (`unixepoch()`); frontend mengonversi ke WITA saat tampil.
 - Nilai LOCAL/PROVISIONAL di `wrangler.jsonc` (bukan keputusan produksi): `PASSWORD_PBKDF2_ITERATIONS="100000"` (maks workerd; CPU plan Free belum diukur), `SESSION_TTL_SECONDS="43200"` (12 jam). Config invalid ⇒ 500 `INTERNAL_ERROR` pada login dan semua route `requireAuth` (logout tetap jalan).
 - Keputusan di area tak ditentukan:
@@ -372,6 +472,7 @@ Phase8 selesai implementasi dan validasi lokal: Design System approved, bootstra
 - Mapping D1 dikunci test D1 nyata: `Officer session limit`, `Inactive session user`, `Inactive raid location or user`, `UNIQUE constraint failed: raid_sessions.user_id`.
 
 ## Frontend Handoff (Phase 2)
+
 - Dev same-origin: `npm run db:migrate:local`, bootstrap data, lalu `npm run dev:app` (`vite build --watch` + `wrangler dev --local`, buka `http://localhost:8787`). Wrapper menambahkan `--compatibility-date <tanggal UTC host>` HANYA bila host UTC < 2026-10-07. Tidak ada proxy Vite/CORS; `npm run dev` (Vite saja) tidak memiliki API.
 - Cookie `__Host-rs_session` HttpOnly/Secure/SameSite=Strict diatur server; frontend tidak menyimpan token. Fetch same-origin (`credentials` default `same-origin` cukup).
 - Semua POST wajib `Content-Type: application/json` dan body JSON (logout/close boleh `{}`); browser mengirim Origin otomatis. Body ≤4 KiB.
@@ -388,20 +489,24 @@ Phase8 selesai implementasi dan validasi lokal: Design System approved, bootstra
   - Lane: trim, 1..100 code point, tanpa karakter kontrol/bidi; server mengembalikan lane hasil trim.
 
 ## Phase 2 Frontend Implementation Notes
+
 - `src/lib/api.ts` berisi tipe/validator client-only, tidak import worker/shared graph; kontrak create/close RaidSession langsung, active envelope. POST JSON termasuk logout/close `{}`, credentials same-origin, no-store, timeout 15 detik + abort, tanpa manipulasi Origin/storage token.
 - Provider auth melakukan initial `/me`, retry recoverable untuk 500/503/network, revalidate saat window focus, absolute expiry timer (chunk TTL panjang). Request generation + cancellation mencegah stale `/me` menimpa login/logout; identity version melindungi respons protected read. Semua 401 protected membersihkan auth dan redirect login; INVALID_CREDENTIALS tetap di form login.
 - Password tidak masuk React state/storage/log; rendered input langsung dikosongkan saat submit dan unmount. SESSION_CONFLICT meminta hubungi admin. Global mutation lock + disabled buttons mencegah start/close/logout races; interrupted raid mutation meminta rekonsiliasi `/active`, 409 start otomatis re-fetch `/active`.
 - Timestamp WITA Asia/Makassar, accessible labels/error focus/aria/live, native select, touch targets ≥44px, narrow layout forced light. Fields tidak di-reset oleh retry/revalidate. Ownership ADMIN/OFFICER tetap diputuskan backend. Scanner hanya teks belum tersedia, tanpa tombol/nav operasional palsu.
 
 ## Local Bootstrap
+
 - `npm run bootstrap:location -- --name "<nama>"`; `npm run bootstrap:user -- --username <u> --role ADMIN|OFFICER [--iterations N]`. Password hanya via stdin (prompt tanpa echo di terminal + konfirmasi, atau pipe). Iterasi default dari `wrangler.jsonc`. Hanya `--local`; file SQL acak di tmpdir dihapus di `finally`. Tanpa policy password (UNRESOLVED): hanya non-empty ≤1024 byte.
 
 ## Pending
+
 - Evaluasi alpha test tooling dan gate produksi sebelum deployment; visual/E2E Android aktual belum dilakukan.
 - Gate transport historis Phase5 hanya dibahas jika ada instruksi terpisah; gatePhase7persiapan dan Phase8localUAT selesai, bukan actualdeployment. Location administration/productionbootstrap/resources/canary/CPUFree dan perangkat Android fisik masih perlu rencana/otorisasi terpisah.
 - Pemantauan risiko transport lokal yang dapat berulang; atribusi root cause historis belum selesai meski gate terbaru lolos. Tidak mengulang diagnosis spekulatif atau mengubah OS policy.
 
 ## Phase 2 Decisions (System Architect GO bersyarat, dicatat AI Lead)
+
 - Plan Cloudflare: `wrangler whoami` = akun OAuth terautentikasi; plan Workers (Free 10 ms CPU vs Paid) TIDAK terverifikasi. Docs resmi: Free 10 ms CPU/request, Paid default 30 s. Plan UNRESOLVED ⇒ parameter produksi BELUM final.
 - P2-01 Password: `shared/password.ts` WebCrypto PBKDF2-SHA256 tanpa dependency (bisa di-strip Node, tanpa import `shared/errors.ts`). Format `pbkdf2-sha256$<iter>$<salt_b64url>$<hash_b64url>`; verifikasi baca iterasi dari hash; compare XOR panjang tetap (portabel Node/workerd). Iterasi via var `PASSWORD_PBKDF2_ITERATIONS` (PROVISIONAL lokal; validasi 1000..100000, maks = batas workerd; config invalid ⇒ 500 fail-closed). Hash tersimpan korup ⇒ 401 `INVALID_CREDENTIALS`. Dummy verification (iterasi terkonfigurasi) untuk username tak dikenal/inactive/format salah. Rehash di batch login bila iterasi tersimpan < konfigurasi. Password maks 1024 byte UTF-8, tanpa normalisasi.
 - P2-02 Session: token 32 byte `getRandomValues` base64url; D1 simpan SHA-256 hex; id `randomUUID`. Cookie `__Host-rs_session; Path=/; HttpOnly; Secure; SameSite=Strict; Max-Age=TTL`. Expiry ABSOLUT via var `SESSION_TTL_SECONDS` (PROVISIONAL; 1..34560000). Jam D1 (`unixepoch()`) satu-satunya sumber waktu untuk create/validate. Setiap request: lookup hash JOIN users is_active=1, revoked_at NULL, expires_at > unixepoch(). Tanpa cache sesi. Cookie invalid ⇒ 401 + clear cookie. Idle timeout TIDAK diimplementasikan (butuh kolom baru).
@@ -418,7 +523,9 @@ Phase8 selesai implementasi dan validasi lokal: Design System approved, bootstra
 - Gate produksi (sebelum deploy): plan terverifikasi + CPU login terukur + iterasi final; rate-limit login; TTL bisnis.
 
 ## Architecture Decisions
+
 Keputusan berikut APPROVED, bukan lagi usulan:
+
 - AD-01: `VehicleSource` dengan `BpadPublicApiSource`. Worker memanggil BPAD Public API langsung: POST `https://dash.bpad.nttprov.go.id/pajak/webdtd/pendataan/core/php/getnopol.php`, JSON `{ "nopol": normalizedNopol }`. Browser tidak memanggil BPAD. PrivateApiSource/njkb-api-ntt Private API BUKAN bagian MVP.
 - AD-02: satu deployment Cloudflare Workers + Hono + Workers Static Assets + D1 + KV. Tanpa Pages. API dan SPA fallback dipisahkan; `/api/*` tidak boleh mengembalikan app shell.
 - AD-03: opaque session token acak kriptografis, SHA-256 hash di D1, cookie HttpOnly Secure SameSite=Strict, `__Host-` bila berlaku. OFFICER satu sesi aktif; ADMIN multi-session. Deactivation menginvalidasi sesi terkait. Tanpa JWT; auth flow diimplementasikan Phase 2. Endpoint/UI admin revoke spesifik tetap Phase 6.
@@ -436,11 +543,13 @@ Keputusan berikut APPROVED, bukan lagi usulan:
 - AD-15: retensi mengikuti kebijakan organisasi bila tersedia; configurable, tanpa default periode bisnis dan tanpa automatic irreversible deletion sampai kebijakan dikonfirmasi.
 
 ## BPAD Response Facts
+
 - User memberikan sampel nyata FOUND: flat object `kode="1"`, `status="success"`, NOPOL, NamaPemilik, Merk, Type, Warna, SD_NOTICE, SD_STNK. Raw payload memuat PII lain; jangan disimpan sebagai fixture/file/log.
 - User memberikan sampel nyata NOT_FOUND: `kode="0"`, `status="failed"`, pesan berisi nomor polisi. Map ke NOT_FOUND dengan pesan aplikasi generik; contradictory/malformed metadata perlu validasi aman.
 - DD/MM/YYYY dikonfirmasi user (contoh `07/10/2026`); successful sample juga berisi ISO YYYY-MM-DD untuk SD_NOTICE/SD_STNK. Parser menerima kedua format secara strict dengan validasi kalender; jangan Date.parse permisif, jangan dukung format lain tanpa bukti.
 
 ## Known Issues
+
 - Phase 4: gate full-suite dan review independen selesai; visual/E2E Android, keyboard virtual/autofocus, sticky section, fixed-bottom saat keyboard tampil, dan kondisi sinar matahari belum diuji perangkat nyata. Regresi RTL bukan bukti E2E.
 - Refresh auth sukses sengaja menghapus data scanner meski konteks setara; mitigasi data usang/privasi, tetapi petugas perlu mengetik ulang setelah focus revalidation. Auto-fetch prefix valid/kuota KV tetap risiko yang telah diputuskan; tanpa cache client.
 - Repository awal bukan git repo; tidak dilakukan git init/commit.
@@ -456,12 +565,14 @@ Keputusan berikut APPROVED, bukan lagi usulan:
 - Koreksi ini terbatas pada mutasi raid. Race perubahan password saat PBKDF2 login dan role pada respons login awal belum diperbaiki; bukan klaim seluruh race aman. Mutasi raid memeriksa role DB terkini, semua protected request tetap membaca role ulang. Tidak ada endpoint perubahan password/admin pada Phase 2; evaluasi kembali sebelum fitur tersebut.
 
 ## Risks
+
 - Public BPAD mengirim field sensitif ke gateway; minimization segera, bounded body, redaction/error generik wajib.
 - Response kontradiktif, format tanggal berbeda, network/timeout, rate limit BPAD belum diketahui; jangan memperlakukan failure sebagai status.
 - Workers Free dipilih user; CPU login/lookup riil belum diukur, resource IDs D1/KV/domain production belum dikonfirmasi. Tidak deploy/provision remote.
 - Quota KV, freshness 5 menit, logging asynchronous gagal, input prefix/duplikasi history perlu uji pada fase terkait.
 
 ## Validation Status
+
 - Phase 0 audit/review selesai; keputusan terbaru supersede usulan yang konflik.
 - `npm install`, `npm run types`: berhasil; `worker-configuration.d.ts` dihasilkan Wrangler, bukan Env handwritten.
 - `npm test`: 5 files / 117 tests passed, termasuk 11 tests actual Miniflare/workerd D1 migration (bukan validasi regex-only), BPAD streaming/malformed/HTTP/network/timeout tests dengan injected fetch tanpa kontak live BPAD, shared dates/NOPOL, Hono/error/logger, dan frontend module graph.
@@ -489,6 +600,7 @@ Keputusan berikut APPROVED, bukan lagi usulan:
 - Review ulang independen koreksi: PASS WITH NOTES, tanpa temuan Critical/High tersisa. Guard atomik hanya menjamin otorisasi mutasi raid pada transaksi D1; read-only API memakai snapshot middleware, bukan janji pembatalan instan setelah revoke. Race password-change saat PBKDF2 wajib ditutup sebelum reset password/admin Phase 6. Gate lokal Phase 2 dilepas; gate produksi tetap tertutup.
 
 ### Phase 3 Validation (Backend Engineer)
+
 - Final `npm test`: **13 files / 388 tests PASS**, 117.37 s; 273 existing tetap tanpa pelemahan. Tambahan `vehicle-cache.test.ts` + `vehicle-lookups.test.ts` **113 tests** (ulang targeted verbose PASS 37.72 s), `vehicle-worker-smoke.test.ts` 1 test, serta 1 case otomatis katalog error `RAID_SESSION_REQUIRED`.
 - Unit KV: digest full/key version, exact schema/source/status/extra PII/date/timestamp/calendar/stale/future/mismatched NOPOL, TTL boundary, stream4096/cancel/hanging/late resolver/UTF8/malformed/read-write failure/deadline/log allowlist. API real Miniflare D1+KV: direct synthetic session seeding tanpa login hashing percase, ADMIN/OFFICER, auth lifecycle/own raid/input/CSRF/bodycap, initial/post-await exact guards pada cache/provider dan NOT_FOUND, tidak rebind raid baru, WITA yesterday/today/tomorrow/null/invalid/boundary, freshness crossing D1, normalized custom source validation/projection, all forbidden sentinel fields, verified absence/error/redirect/nonJSON/network/oversize/3000ms body timeout, read/write/hang fallback, exact put300 dan nohistory all outcomes. Role middleware/schema tests existing tetap PASS.
 - Bundled production Worker via Wrangler dry-run + actual workerd/D1/KV: outboundService test-only mengintercept SEMUA fetch sehingga tidak ada live BPAD; public route default adapter/production registration LIVE→CACHE, actual key/schema, WITA, request ID/no-store/minimization, 502 tidak cache, history count0. Client module graph existing PASS, build tetap31 modules dan aset output ukuran unchanged.
@@ -497,6 +609,7 @@ Keputusan berikut APPROVED, bukan lagi usulan:
 - Turn lanjutan **20 perintah top-level dalam 9 shell calls**: typecheck4, lint4, Vitest targeted6, npm test1, build1, migrate1, audit2, dry-run1. Build menjalankan typecheck internal; test smoke menambahkan dry-run internal, bukan deploy. Tidak git/provision/deploy/live BPAD/bootstrap/Phase4. Reviewer pending; CPU produksi Free belum diukur.
 
 ### Corrective Test Infrastructure Validation (2026-10-07, Backend Engineer)
+
 - Bukti root transport: kegagalan sebelumnya merupakan `connect EADDRINUSE` saat proxy localhost Miniflare, bukan outcome BPAD/DB bisnis. Changelog resmi https://github.com/cloudflare/workers-sdk/blob/main/packages/miniflare/CHANGELOG.md release5.20261006.0-alpha mencantumkan #15781 commit48f3c04: dispatchFetch kini reuse runtime connections untuk POST/PUT/DELETE/PATCH dan tidak automatic replay; idle client ditutup1s sebelum timeout workerd5s. Release juga #16063 memperbaiki startup synchronous proxy. Latest registry tetap alpha, bukan stable; tidak mengklaim sudah memakai stable.
 - Upgrade terarah `npm install --save-dev --save-exact miniflare@5.20261006.0-alpha wrangler@4.148.0`; npm ls membuktikan matching Miniflare/workerd1.20261006.1 deduped dengan Wrangler. Undici runtime7.29.1 unchanged; sharp override0.35.5 tetap. Tidak patch node_modules, OS ports/network policy, global dispatcher, atau compatibility date (tetap2026-10-07).
 - Helper kembali direct `mf.getD1Database('DB')`, tanpa statement caching/substitute query results. Reuse satu runtime per auth-raid/d1 suite, reset child-before-parent via real DB batch/FK, cleanup pada startup failure tetap dipertahankan. Lookup suite reuse actual KV handle. Semua assertions, provider outbound interception, realD1/KV/workerd dan388 tests utuh, termasuk273 original. Tidak retries atau authored skips.
@@ -507,6 +620,7 @@ Keputusan berikut APPROVED, bukan lagi usulan:
 - Code Reviewer source Phase3 PASS WITH NOTES (Critical/High0): minimization/auth snapshot/cache freshness/provider taxonomy/history deferred. Review supplemental koreksi runtime tidak mengembalikan laporan (output kosong); tidak dihitung sebagai approval baru. Tidak ada claim production-ready atau live-provider verification.
 
 ### Gate Akhir Phase 3 (2026-10-07, AI Lead)
+
 - Scripts package.json seluruhnya diperiksa. `wrangler:dry-run` TIDAK didefinisikan dan tidak diwajibkan sebagai npm script. `Missing script: wrangler:dry-run` adalah nama command npm yang tidak berlaku, bukan failure bundling Worker. Gate substantif memakai command existing `npx wrangler deploy --dry-run`; tidak menambahkan script atau mengubah package/config.
 - User melaporkan restart Windows dan tiga PASS. AI Lead tidak menganggap laporan itu bukti fix kausal: pembacaan CIM LastBootUpTime tidak memberikan bukti reboot hari ini yang jelas, dan shell agregat awal mengeluarkan stack fetch-failed worker-smoke/helper tanpa count lengkap. Tidak disembunyikan atau dipakai sebagai PASS; bukti deterministik di bawah merupakan sequence verifikasi terpisah, bukan auto-retry runtime/tests. Kondisi host/reboot dan akar churn tetap belum terverifikasi penuh.
 - Tiga `npm test` langsung berurutan tanpa retry setting/sleep/cooldown/preload diagnostik: run1 06:41:50–06:42:41UTC **13 files/388PASS49.30s**; run2 06:42:41–06:43:30UTC **13 files/388PASS47.98s**; run3 06:43:30–06:44:23UTC **13 files/388PASS52.80s**. Exit0 semua; tidak ada test fail/skip/EADDRINUSE di ketiga log. Test realD1/KV/workerd, provider sintetis, moduleboundary tetap utuh. Tidak mengklaim transport bebas error universal.
@@ -517,6 +631,7 @@ Keputusan berikut APPROVED, bukan lagi usulan:
 - Keputusan akhir berdasarkan instruksi gate terbaru user: **PHASE 3 COMPLETE — VALIDASI LOKAL SAJA**. Transport historis ROOT CAUSE UNRESOLVED tetap residualrisk, bukan klaim fix. Gate produksi CPUFree/IDs/domain/validasiAndroid tetap terbuka; baseline100000/TTL43200/no loginrate tidak diubah. Riwayat implementasi selesai Phase3: endpoint protectedlookup, runtime KV300, statusWITA/minimization dan388tests; historyasync tetap Phase5.
 
 ### Validasi Phase 4B (Frontend Engineer, 2026-10-07)
+
 - Pembacaan ulang status lengkap, scanner/API/app/auth dan tests terkait dilakukan sebelum koreksi. Baseline final parsial: `npx vitest run tests/scanner-api.test.ts tests/scanner.test.ts tests/frontend.test.ts tests/frontend-api.test.ts tests/build.test.ts` **5 files / 170 tests PASS**, 26,32 s.
 - Setelah koreksi konteks: perintah targeted yang sama **5 files / 181 tests PASS**, 19,14 s. Setelah tambahan regresi 401: hasil FINAL **5 files / 185 tests PASS**, 27,49 s (scanner UI 57, scanner API 78, frontend existing 49, build boundary 1). Tidak ada fail/skip/retry authored; `tests/build.test.ts` PASS, client graph tanpa worker/shared/tests/fixtures.
 - `npm run typecheck` dan `npm run lint` FINAL PASS tanpa diagnostic; `npm run build` FINAL PASS, 32 modules, HTML 0,36 kB/gzip 0,27 kB, CSS 18,01 kB/gzip 4,47 kB, JS 320,45 kB/gzip 101,13 kB. `npm audit --audit-level=high` dan `npm audit --omit=dev` PASS, **0 vulnerabilities**; dependency/config tidak berubah.
@@ -524,6 +639,7 @@ Keputusan berikut APPROVED, bukan lagi usulan:
 - Perubahan perilaku Phase 2 minimal: login/root dengan raid aktif ke scanner, tanpa raid ke setup; explicit setup tetap setup. Assertion lama yang memeriksa tidak adanya tombol Scanner diganti assertion tautan Scanner aktual, tanpa menghapus coverage auth/raid existing.
 
 ### Keputusan Implementasi Phase 4B
+
 - Normalisasi client mempertahankan raw input dan memeriksa panjang sebelum uppercase/hapus whitespace; sesuai instruksi lanjutan, atribut `maxlength` dihapus agar paste >64 tidak dipotong diam-diam menjadi NOPOL valid. Input panjang tampil hint, tidak dikirim. Tanda baca tidak dihapus.
 - Semua edit input langsung menghapus hasil lama, termasuk whitespace. Enter berulang pada NOPOL loading/FOUND/NOT_FOUND tidak menambah request; X mengakhiri siklus sehingga NOPOL sama dapat diperiksa ulang. Retry hanya untuk kegagalan, bukan cache client.
 - Perubahan objek auth (termasuk `/me` dengan identitas/raid setara), pergantian raid/role/expiry, dan awal logout membersihkan input/hasil/error dan membatalkan pending work melalui layout effect sebelum paint. Respons/error usang ditekan sebelum `read()` agar 401 usang tidak menginvalidasi auth atau membatalkan logout sekarang. Auth server/provider tidak diubah. Hanya notice 409 dari rekonsiliasi scanner sendiri dipertahankan saat `setRaid(...)`; tanpa membuat sesi otomatis.
@@ -531,6 +647,7 @@ Keputusan berikut APPROVED, bukan lagi usulan:
 - Warna badge wajib tetap emerald-600/red-600 + putih dengan teks 24 px font-extrabold. Perhitungan dari token OKLCH Tailwind installed ke luminansi sRGB: putih/emerald-600 ≈3,665:1, putih/red-600 ≈4,765:1. Emerald memenuhi ambang AA teks besar 3:1, bukan AA teks normal 4,5:1; ukuran besar wajib dipertahankan. Bukan klaim audit visual perangkat atau WCAG menyeluruh.
 
 ### Koreksi Bottom Navigation Phase 4 (Frontend Engineer, 2026-10-07)
+
 - Membaca status lengkap terbaru, Shell/tests dan Blueprint STEP 07 sebelum patch. Penundaan bottom navigation tidak dipertahankan. Satu `nav` bernama Navigasi utama dipindahkan dari header ke `fixed inset-x-0 bottom-0 z-20`; header hanya judul/identitas/catatan logout. Tautan menggunakan `NavLink end` dengan `aria-current` otomatis dan penanda aktif. Keluar tetap satu tombol dengan guard auth/mutation existing.
 - Navigasi satu baris, flex-1, gap 8 px, padding horizontal 16 px, kontrol min-h/min-w 44 px. Pada lebar 320 px tersedia sekitar 90,7 px per kontrol untuk tiga item; tanpa flex-wrap yang menaikkan tinggi bar. Bar 44 px + padding vertikal 16 px + border, ditambah `env(safe-area-inset-bottom,0px)`; Shell menyediakan padding bawah 80 px + safe-area yang sama agar akhir konten/result dapat digulir melewati bar. Sticky input tetap di atas, tanpa listener keyboard/viewport spekulatif.
 - `npx vitest run tests/scanner-api.test.ts tests/scanner.test.ts tests/frontend.test.ts tests/frontend-api.test.ts tests/build.test.ts`: **5 files / 187 tests PASS**, 28,64 s (2 regresi baru navigasi aktif/tanpa raid). Assertions afirmatif: nav tunggal di luar header/main, posisi fixed-bottom, safe-area, kompensasi konten, ukuran kontrol, Scanner kondisional, satu Keluar, transisi aria-current/setup/scanner. Assertions existing tidak dihapus/dilemahkan; module boundary PASS.
@@ -538,6 +655,7 @@ Keputusan berikut APPROVED, bukan lagi usulan:
 - Batas validasi: jsdom tidak melakukan layout pixel/keyboard virtual. Pengguliran aktual 320 px, Android, keyboard/autofocus dan perilaku fixed-bottom saat keyboard tampil belum diuji perangkat/E2E. CSS memastikan ruang konten secara deklaratif, bukan klaim visual aktual. Review ulang independen masih pending; tanpa Phase 5/deploy/live BPAD.
 
 ### Gate Akhir Phase 4 (AI Lead, 2026-10-07)
+
 - Verifikasi sebelum koreksi navigasi: 15 files/523 tests PASS (62,84 detik), typecheck/lint/build, audit full dan produksi, migrasi lokal serta dry-run PASS. Review source CHANGES REQUIRED: satu Medium (bottom navigation belum tersedia); tidak dinyatakan COMPLETE pada kondisi tersebut.
 - Koreksi hanya frontend Shell dan dua regresi navigasi; review ulang independen READ-ONLY **PASS**, Critical0/High0/Medium0/Low0. Memeriksa auth/raid isolation, stale response/401, pembatalan logout/reset, parser allowlist, status otoritatif backend, kontras teks besar, kontrol sentuh dan bottom navigation/safe-area. Tidak ada storage/log/cache kendaraan/direct BPAD di client. Review statik bukan pengujian visual Android.
 - Gate FINAL setelah koreksi: `npm test` **15 files/525 tests PASS**, 64,25 detik, tanpa fail/skip/EADDRINUSE; `npm run typecheck` dan `npm run lint` PASS tanpa diagnostic. `npm run build` PASS32 modules: HTML0,36kB, CSS18,74kB/gzip4,64kB, JS320,83kB/gzip101,24kB. `tests/build.test.ts` memastikan graph client tidak membawa worker/shared/tests/fixtures/migrasi/dependency backend.
@@ -546,21 +664,26 @@ Keputusan berikut APPROVED, bukan lagi usulan:
 - Keputusan: **PHASE 4 COMPLETE — VALIDASI LOKAL SAJA**. Batasan tetap: refresh auth setara membersihkan scanner (ketik ulang), prefix valid dapat memicu lookup tambahan/kuota, abort browser tidak menjamin server berhenti, Android/CPUFree belum terukur, transport historis root cause belum terbukti terselesaikan. Tidak ada authoredskip/retry/sleep/cooldown/assertion pelemahan/OS change untuk meloloskan gate.
 
 ## Files / Modules Changed
+
 - Review Phase 5 (2026-10-07): hanya PROJECT_STATUS.md; tanpa kode fitur, migration, test, dependency, atau mutasi Git. Kontrak usulan dan keputusan yang diperlukan dicatat di bagian berikut.
 
 ### Review Kontrak Phase 5 — Usulan, Belum Diimplementasikan
+
 - Readiness **BLOCKED — DECISION REQUIRED**. System Architect dan Code Reviewer bekerja read-only; AI Lead membaca status/Blueprint lengkap, schema, lookup/scanner, auth/raid, logger/error, helpers/tests, konfigurasi dan metadata Git. Gate implementasi Phase 5 belum dijalankan; baseline terakhir Phase 4 525 tests PASS adalah sejarah, bukan hasil tests fitur history.
 - Fakta schema `0001_foundation.sql:76–101`: 10 fields, composite FK `(raid_session_id,user_id)` ke raid owner dan FK user, semua ON DELETE RESTRICT; UNIQUE `(raid_session_id,idempotency_key)`; FOUND status wajib ACTIVE/EXPIRED/UNKNOWN, NOT_FOUND status NULL dan source LIVE. Index raid_time/user_time tersedia. Tidak ada FK ke auth session, trigger UPDATE immutable, fetched_at/evaluated_on, atau insert-time terpisah. Trigger BEFORE INSERT menolak user inactive. CHECK NOPOL SQL hanya length/alphanumeric; aplikasi wajib existing normalizer. Hanya0001 tersedia; helper tests hanya memuat0001.
 - `worker/lookups.ts` menangkap exact own ACTIVE raid serta session dan final authorization sebelum hasil200; belum menulis history. Scanner debounce600ms dapat mengirim prefix yang valid; abort UI tidak menjamin hasil server tidak selesai. Tidak ada arti final check-cycle/physicalcheck atau aturan dedup client. Tests count0 Phase3 adalah kontrak deferred, wajib diadaptasi eksplisit pada implementasi, bukan dihapus coverage.
 
 #### Keputusan yang diperlukan
-| ID | Keputusan | Mengapa perlu | Rekomendasi dan alternatif | Dampak |
-| --- | --- | --- | --- | --- |
-| D5-01 | Apakah satu record/Total Scan berarti setiap hasil lookup server terotorisasi FOUND/NOT_FOUND, termasuk LIVE/CACHE, NOPOL berulang, prefix valid dan hasil selesai setelah browser abort? | Blueprint belum mendefinisikan lookup vs pemeriksaan fisik; heuristik input-cycle belum disetujui. Server tidak dapat membuktikan petugas membaca hasil. | Rekomendasi setiap hasil request baru dihitung; bukan kendaraan unik/diberhentikan. Alternatif actual-check memerlukan konfirmasi finality dan kontrak/scanner baru, bukan heuristik. | Mengikat insert, idempotency dan rekap. |
-| D5-02 | Apakah snapshot hasil yang lolos final authorization tetap dicatat setelah logout/expiry/raid close/user deactivation sebelum background insert? | Close/logouts kompatibel existing, tetapi check_logs_active_user menolak deactivation sehingga record sah hilang. | Rekomendasi pertahankan hasil yang sah; ubah trigger hanya pada migration baru tanpa melonggarkan authorization lookup/read. Alternatif pertahankan trigger dan drop observable jika user inactive. | Mengikat migration, race handling dan completeness audit. |
+
+| ID    | Keputusan                                                                                                                                                                                 | Mengapa perlu                                                                                                                                            | Rekomendasi dan alternatif                                                                                                                                                                          | Dampak                                                    |
+| ----- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------- |
+| D5-01 | Apakah satu record/Total Scan berarti setiap hasil lookup server terotorisasi FOUND/NOT_FOUND, termasuk LIVE/CACHE, NOPOL berulang, prefix valid dan hasil selesai setelah browser abort? | Blueprint belum mendefinisikan lookup vs pemeriksaan fisik; heuristik input-cycle belum disetujui. Server tidak dapat membuktikan petugas membaca hasil. | Rekomendasi setiap hasil request baru dihitung; bukan kendaraan unik/diberhentikan. Alternatif actual-check memerlukan konfirmasi finality dan kontrak/scanner baru, bukan heuristik.               | Mengikat insert, idempotency dan rekap.                   |
+| D5-02 | Apakah snapshot hasil yang lolos final authorization tetap dicatat setelah logout/expiry/raid close/user deactivation sebelum background insert?                                          | Close/logouts kompatibel existing, tetapi check_logs_active_user menolak deactivation sehingga record sah hilang.                                        | Rekomendasi pertahankan hasil yang sah; ubah trigger hanya pada migration baru tanpa melonggarkan authorization lookup/read. Alternatif pertahankan trigger dan drop observable jika user inactive. | Mengikat migration, race handling dan completeness audit. |
+
 - ADMIN akses global bukan blocker: Blueprint persona admin baris72 eksplisit melihat log keseluruhan. OFFICER own raid/history saja sesuai least privilege/ownership existing. Retensi tanpa policy formal bukan izin periode arbitrary: tetap UNSET dan tidak auto-delete.
 
 #### Matriks field minimal usulan
+
 Semua field immutable setelah INSERT. Record mengikuti retensi organisasi yang belum ditentukan; id/user/raid mempertahankan referensi selama record ada. Tidak otomatis menambah semua fields response lookup.
 | Field | Tipe / nullable | Sumber dan tujuan | Index | Privasi / retensi |
 | --- | --- | --- | --- | --- |
@@ -574,16 +697,19 @@ Semua field immutable setelah INSERT. Record mengikuti retensi organisasi yang b
 | stnk_status | TEXT nullable | FOUND snapshotstatus; NOT_FOUND NULL | Tanpa index status sendiri default | Data administratif; tidak recalculated |
 | source | TEXT NOT NULL | LIVE/CACHE; NOT_FOUND LIVE | Tanpa index sendiri | Provenance minimal |
 | checked_at | INTEGER NOT NULL | Epoch detik UTC saat hasil/evaluasi, bind eksplisit | Paging `(raid_session_id,checked_at,id)` | Waktu kegiatan/purge future policy |
+
 - `checked_at` tidak memakai default waktu backgroundinsert; status berasal dari waktu evaluasi hasil yang sama. WITA businessdate dapat diturunkan dari timestamp. Jangan recalculatestatus historis saat dibaca.
 - Tidak menyimpan owner_name, brand/type/color, raw due dates, token/hash, NIK/alamat/BPKB/chassis/engine/rawBPAD. History UI cukup NOPOL/outcome/status/waktu/source, tidak fetch BPAD untuk enrichment. Separate request_id redundant dengan idempotency_key serverUUID; auth_session_id tidak diperlukan ownership dan menambah retention coupling. provider_fetched_at/evaluated_on/created_at terpisah tidak otomatis ditambah; audit freshness rinci di luar minimal MVP memerlukan keputusan baru bila diminta.
 - Ownership diturunkan dari raid; user_id denormalized diverifikasi composite FK. Auth sesi asal boleh expired/logout; reader tetap wajib sesi baru valid. Tidak delete record karena auth expired; close raid mempertahankan history/delayed result sah; hard delete user/raid yang direferensikan ditolak. Admin_audit_logs dapat menahan sesi tertentu secara terpisah. Metadata nama lokasi/username dari JOIN adalah nilai current, bukan snapshot rename historis; lane/location_id raid immutable.
 
 #### Async dan idempotency usulan
+
 - Setelah final auth/raid guard dan status/outcome siap, susun payload immutable allowlist; jadwalkan lewat c.executionCtx.waitUntil sebelum return JSON. Lookup boleh200 walau insert gagal. D5-02 menentukan policy user deactivated setelah guard. Tidak rebind record ke raid baru dan tidak menjadikan expired session asal alasan menghapus audit.
 - Catch failure emit history_write_failed + request_id UUID + kode generik saja; tidak raw exception/body/provider/NOPOL/nama. Tidak retry otomatis atau Queue/DurableObjects. Best-effort/eventual, bukan durable delivery. UUID server sebagai idempotency_key: double-scheduling job sama ditekan UNIQUE; requestHTTP baru termasuk retry client menghasilkan record baru legitimate sesuai D5-01. Jangan UNIQUE NOPOL/clientcycle. Tangani konflik hanya key expected, constraint lain tetap failure.
 - Docs https://developers.cloudflare.com/workers/runtime-apis/context/ diverifikasi07Oct: waitUntil sampai30s sesudahresponse/disconnect, shared antarbackgroundtasks. Cancellation/quota/runtimefailure bisa kehilanganrecord. Safe console event saat managedobservabilityOFF bukan bukti event tersimpan/terpantau produksi; sink aman masih gate produksi, tidak enable invocationURLs/rawtraces otomatis.
 
 #### API/pagination/rekap usulan
+
 - GET /api/history/raid-sessions?limit=20&cursor=...: own OFFICER/global ADMIN, ACTIVE+CLOSED. Envelope raid_sessions/next_cursor/request_id; item RaidSession + owner{id,username} bila atribusi admin diperlukan (usernamecurrent, bukan owner_name kendaraan). Tanpa filter user/NOPOL/sort bebas yang belum dibutuhkan.
 - GET /api/raid-sessions/:id/checks?limit=20&cursor=...: envelope raid_session/checks/next_cursor/request_id, check{id,nopol,outcome,tax_status,stnk_status,source,checked_at}. Tidak expose authsession/key secara otomatis; tidak perlu endpoint logdetail duplikatif.
 - GET /api/raid-sessions/:id/summary: envelope raid_session/summary/request_id; summary{total_checks,found,not_found,tax_active,tax_expired,tax_unknown}. total=found+not_found; found=tax_active+tax_expired+tax_unknown. Rekap satu raid, bukan historylist; UNKNOWN menjelaskan gap, bukan statusabsence. Tidak menambah STNKmetric/unique/enforcement/dashboard/first-last tanpa kebutuhan Blueprint.
@@ -592,6 +718,7 @@ Semua field immutable setelah INSERT. Record mengikuti retensi organisasi yang b
 - Index usulan sesudah EXPLAIN: check_logs `(raid_session_id,checked_at DESC,id DESC)` menggantikan raid_time redundant; raid_sessions `(user_id,started_at DESC,id DESC)` dan `(started_at DESC,id DESC)` untuk ADMINglobal. Tidak indexstatus tambahan otomatis; indexes menambah writecost.
 
 #### Migration safety dan frontend/test usulan
+
 - Schema10fields cukup dataMVPminimal, tetapi immutableUPDATE/raceguard/paging perlu migration0002 setelahD5decisions. Tambah BEFORE UPDATE reject; ubah activeuserinsertguard hanya bilaD5-02retain disetujui; tambah/optimalkanindexes. Jangan edit0001, rebuild/dropdatatabel, fakebackfill, atau recalculatestatus. DELETEfuturepurge tidak diblokir permanen, tetapi tidak expose delete/purgeendpoint dan tidakautodelete. RETENTION_POLICYUNSET bukan izin unlimitedretention bisnis.
 - Helpermigration harus loadorderedsemuafiles, bukan0001only; freshDB dan upgrade populated0001 diuji rowcounts/values/FK/immutable/key uniqueness. Wrangleridempotency dan no-partialmigration diuji. Rollback lewatforwardcorrective migration/backup, tidak membuang auditdata; applylocal dahulu, tanpa produksi faseini.
 - Frontend /history list/detailrecapACTIVE+CLOSED, mini livehistory+rekapscanner sesuaiBlueprint; tambahRiwayat bottomnav, tinjau44pxtouch/safearea layar kecil. Empty/loading/retry/401existingauth/403accessdenied/404/loadmore; tidakstorage/analytics/cacheclient/ownernameenrichment. Manual/focus refresh dan postlookupevent boleh fetchhead dengan eventualnotice, tidakaggressivepolling. Scanner normalize/debounce/abort/statePhase4 tidakdiubah untuk checkcycle.
@@ -599,11 +726,13 @@ Semua field immutable setelah INSERT. Record mengikuti retensi organisasi yang b
 - FreePlan existingWorkerD1KV cukup desain, tanpa paidservicebaru. Docs https://developers.cloudflare.com/d1/platform/pricing/ diverifikasi07Oct:5juta rowsread/hari,100000 rowswritten/hari,5GBtotal; indexwrites ikutkuota, exceededqueriesfail. Kuota/CPU jangan diasumsikan cukup berdasarkan countvehicle; querybounded dan aggregate/indexperformance perlu evidence.
 
 #### Review independen dan Git
+
 - CodeReviewer proposal CHANGES REQUIRED:2High (trigger menghilangkan delayedlog sah, helper hanya0001),1Medium(UPDATEimmutable belum ada),1Low(pagingindexes). Ini risiko integrasi Phase5 yang belumdiimplementasikan, bukan temuan APIhistoryexisting exploitable. Tidak memberiizin droptrigger sebelumD5-02. AILead menolak403logout rekomendasi Architect; ADMINglobal adaBlueprintevidence; loader/index adalah pekerjaan teknis, bukan blockerbisnis tambahan.
 - Gitread-only membuktikan repo D:/Herd/razia-samsat, branchmain, remoteorigin, latest99bcc12InitialCommit. Mayoritas sourcePhase1–4untracked; statusmodified. Historical'bukangitrepo' tidaklagicurrent. Jangan asumsi semua baselinecommitted/stageall; auditbaseline/userchanges sebelumcommitPhase5. User mewajibkancommitpush hanya sesudahimplementation+allgatesPASS; sekarangBLOCKED sehingga tidakstage/commit/push. Branchmain; commithashbaru/pushresult tidakada.
 - Exactnextstep: user putuskanD5-01/D5-02; sesudahdicatatfinalisasi readiness sebelummigration/code. ScopePhase6/deploy tetapdilarang. NOT PRODUCTION READY: baselineCPUFree/resources/domain/Android/transportroot/retention/observability masihterbuka.
 
 ## Files / Modules Changed (Riwayat Phase 1–4)
+
 - Koreksi bottom navigation: hanya `src/app.tsx`, `tests/scanner.test.ts`, `PROJECT_STATUS.md`; auth/API/scanner behavior, CSS global, Button, backend/config/dependencies tidak diubah.
 - Phase 4 frontend: baru `src/scanner.tsx`, `tests/scanner.test.ts`, `tests/scanner-api.test.ts`; integrasi `src/app.tsx`, `src/lib/api.ts`, assertion navigasi minimal `tests/frontend.test.ts`, dan `PROJECT_STATUS.md`. `src/auth.tsx`, CSS/global Button, backend/shared/migrations/config/dependencies/backend tests tidak diubah. Tanpa history/live list/rekap/admin/statistik/export/PWA/kamera/penyimpanan/log kendaraan.
 - Koreksi test-only Phase3: `package.json`/`package-lock.json` (matching runtime release fix), `tests/helpers/miniflare.ts` (startup cleanup/reset nyata/remove complex statement cache), `tests/auth-raid.test.ts` + `tests/d1.test.ts` (suite-scoped runtime/per-test reset), `tests/vehicle-lookups.test.ts` (reset helper/reuse KV handle), `PROJECT_STATUS.md`. Assertions dan source produk tidak diubah; tanpa frontend/schema/passwordTTL/config perubahan.
@@ -619,11 +748,13 @@ Semua field immutable setelah INSERT. Record mengikuti retensi organisasi yang b
 - Edit backend sebelumnya melalui helper apply_patch lokal sementara; edit frontend melalui tools Write/Edit karena apply_patch tidak tersedia. Lockfile/runtime declarations/build output dihasilkan package tooling. Kedua proyek referensi tidak diubah; tidak ada extra Markdown atau real PII fixture.
 
 ## Next Step
+
 STOP sesudah P9-E.1 tooling/commit/push. Satu langkah berikutnya: otorisasi operator menjalankan P9-E via terminalinteraktif dengan passwordbaru khususproduksi setelahpreflightulang; janganinputcredentialviachat ataujalankanapplydarisessionagent. ProductionmigrationsP9-D.4sudahPASS, bootstrapaccounts/locationmasihpending. Tidakdeploy/domain/smoke/BPADcanary otomatis. Risk10/retentionUNSET/mobile/go-live belumditutup; userchanges tetapdipertahankan.
 
 UNRESOLVED: transport local test runtime; CPU aktual Free dengan baseline password100000/TTL43200; idle timeout; minimum/complexity password policy; risiko brute-force (rate-limit sengaja tidak diminta); raid deactivation/auto-close; reset interim OFFICER; retensi user_sessions; IDs/domain produksi. Plan Free dan baseline sudah DIPUTUSKAN, bukan open selection.
 
 ## Agent Handoff Notes
+
 - Handoff akhir Phase 4: scanner frontend selesai, gate penuh dan review PASS. Baca status lengkap/Blueprint sebelum tugas berikutnya; completion tidak memberi izin Phase 5. Backend/config/dependencies tidak diubah pada Phase 4. Catatan scope Phase 2/3 berikut adalah sejarah, bukan batas scope baru.
 - Referensi read-only: `D:\Herd\kalkulator-pajak` (Vite/React/Tailwind/shadcn, UI primitives, utils); `D:\Herd\njkb-api-ntt` (adapter BPAD bounded-read/testing/security sebagai pola, BUKAN provider lookup).
 - Scope Phase 2: auth backend dan UI minimum login/logout/guard/raid setup/start/close saja. Tidak scanner, admin/history UI, statistik, export, PWA UX, KV runtime lookup, atau full vehicle lookup endpoint.
