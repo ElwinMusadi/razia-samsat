@@ -23,7 +23,7 @@ describe('actual workerd D1 foundation migration', () => {
     expect(tables.results.map((row: {name: string}) => row.name)).toEqual(['admin_audit_logs','check_logs','locations','raid_sessions','user_sessions','users']);
     expect(await db.prepare('PRAGMA foreign_keys').first<number>('foreign_keys')).toBe(1);
     const columns = await db.prepare('PRAGMA table_info(check_logs)').all<{name:string}>();
-    expect(columns.results.map((row: {name: string}) => row.name)).toEqual(['id','raid_session_id','user_id','idempotency_key','nopol','outcome','tax_status','stnk_status','source','checked_at']);
+    expect(columns.results.map((row: {name: string}) => row.name)).toEqual(['id','raid_session_id','user_id','idempotency_key','nopol','outcome','tax_status','stnk_status','source','checked_at','vehicle_brand','vehicle_type','vehicle_color']);
   });
   it('enforces role, active flags, username uniqueness and basic timestamps', async () => {
     await expect(sql("UPDATE users SET role='CLIENT' WHERE id='officer'")).rejects.toThrow();

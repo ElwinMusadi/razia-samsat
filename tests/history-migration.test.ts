@@ -3,7 +3,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { applyTestMigrations, loadMigrationFiles, resetTestD1, startMigratedD1, type TestD1 } from './helpers/miniflare';
 
 let mf: Miniflare, db: TestD1;
-const fields = ['id','raid_session_id','user_id','idempotency_key','nopol','outcome','tax_status','stnk_status','source','checked_at'];
+const fields = ['id','raid_session_id','user_id','idempotency_key','nopol','outcome','tax_status','stnk_status','source','checked_at','vehicle_brand','vehicle_type','vehicle_color'];
 async function seed(database: TestD1) {
   await database.batch([
     database.prepare("INSERT INTO users(id,username,password_hash,role) VALUES('user','synthetic.user','unused','OFFICER'),('other','synthetic.other','unused','OFFICER')"),
@@ -22,13 +22,13 @@ afterAll(async () => { await mf?.dispose(); });
 describe('authoritative ordered atomic migration files on actual D1/workerd', () => {
   it('loads all SQL files lexicographically and keeps full triggers intact', async () => {
     const files = await loadMigrationFiles();
-    expect(files.map(f=>f.filename)).toEqual(['0001_foundation.sql','0002_history.sql','0003_admin.sql']);
+    expect(files.map(f=>f.filename)).toEqual(['0001_foundation.sql','0002_history.sql','0003_admin.sql','0004_check_vehicle.sql']);
     expect((await loadMigrationFiles('0001_foundation.sql')).map(f=>f.filename)).toEqual(['0001_foundation.sql']);
     expect(files[1].statements[0]).toBe('CREATE UNIQUE INDEX check_logs_raid_nopol ON check_logs(raid_session_id, nopol);');
     expect(files[1].statements.find(s=>s.startsWith('CREATE TRIGGER'))).toBe("CREATE TRIGGER check_logs_immutable BEFORE UPDATE ON check_logs BEGIN SELECT RAISE(ABORT, 'Check log is immutable'); END;");
     await expect(loadMigrationFiles('missing.sql')).rejects.toThrow('Unknown migration filename');
   });
-  it('fresh schema retains ten fields, technical unique, FKs and correct paging indexes', async () => {
+  it('fresh schema retains thirteen fields, technical unique, FKs and correct paging indexes', async () => {
     expect((await db.prepare('PRAGMA table_info(check_logs)').all<{name:string}>()).results.map((r:{name:string})=>r.name)).toEqual(fields);
     expect(await db.prepare('PRAGMA foreign_keys').first('foreign_keys')).toBe(1);
     expect((await db.prepare('PRAGMA foreign_key_check').all()).results).toEqual([]);

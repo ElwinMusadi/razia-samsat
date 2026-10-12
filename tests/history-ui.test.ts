@@ -16,7 +16,7 @@ const raid: HistoryRaid = { id: RAID, location, lane: 'arah pusat kota', status:
 const closed: HistoryRaid = { ...raid, id: uuid(4), lane: 'jalur barat', status: 'CLOSED', closed_at: raid.started_at + 60 };
 const cursor = 'opaqueCursor_Az09-';
 const auth = (active = true, role: 'ADMIN' | 'OFFICER' = 'OFFICER'): AuthState => ({ user: { id: uuid(3), username: 'synthetic.reader', role }, session: { expires_at: Math.floor(Date.now() / 1000) + 3600 }, active_raid_session: active ? raid : null });
-const check = (n: number, tax: HistoryCheck['tax_status'] = 'ACTIVE'): HistoryCheck => ({ id: uuid(100 + n), nopol: `DH${n}ZZ`, outcome: tax === null ? 'NOT_FOUND' : 'FOUND', tax_status: tax, stnk_status: tax === null ? null : 'UNKNOWN', source: tax === null ? 'LIVE' : 'CACHE', checked_at: raid.started_at + n });
+const check = (n: number, tax: HistoryCheck['tax_status'] = 'ACTIVE'): HistoryCheck => ({ id: uuid(100 + n), nopol: `DH${n}ZZ`, outcome: tax === null ? 'NOT_FOUND' : 'FOUND', tax_status: tax, stnk_status: tax === null ? null : 'UNKNOWN', source: tax === null ? 'LIVE' : 'CACHE', checked_at: raid.started_at + n, vehicle_brand: tax === null ? null : 'Brand', vehicle_type: tax === null ? null : 'Type', vehicle_color: tax === null ? null : 'Color' });
 const zeros: HistorySummary = { total_checks: 0, found: 0, not_found: 0, tax_active: 0, tax_expired: 0, tax_unknown: 0 };
 const summary: HistorySummary = { total_checks: 4, found: 3, not_found: 1, tax_active: 1, tax_expired: 1, tax_unknown: 1 };
 const json = (body: unknown, status = 200, headers: Record<string, string> = {}) => new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json', ...headers } });
@@ -266,6 +266,13 @@ describe('scanner history panel isolation', () => {
     const button = within(panel()).getByRole('button', { name: 'Muat ulang' }); expect(button.className).toContain('min-h-12');
     await userEvent.click(button); await waitFor(() => expect(calls).toBe(2));
     expect(historyCalls()).toHaveLength(4);
+  });
+  it('shows vehicle type and color instead of the check timestamp', async () => {
+    scannerRoutes(path => path === summaryUrl ? recap() : json({ checks: [check(1), check(2, null)], next_cursor: null }));
+    mount('/razia/scanner');
+    const list = await screen.findByRole('list', { name: 'Pengecekan terbaru' });
+    expect(within(list).getByText('Type \u2022 Color')).toBeTruthy();
+    expect(list.textContent).not.toContain('WITA');
   });
   it('focus refreshes history head without polling', async () => {
     scannerRoutes(); mount('/razia/scanner'); await screen.findByText('Belum ada pengecekan tercatat pada sesi ini.');

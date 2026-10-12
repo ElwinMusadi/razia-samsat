@@ -41,7 +41,7 @@ async function files(values: Record<string,string | Buffer>, test: (directory:st
 
  describe('controlled migration file sources and schema tokenizer',()=>{
   it('loads all three authoritative raw files byte-for-byte with SHA-256 evidence',async()=>{
-    expect(sources.map(source=>source.filename)).toEqual(['0001_foundation.sql','0002_history.sql','0003_admin.sql']);
+    expect(sources.map(source=>source.filename)).toEqual(['0001_foundation.sql','0002_history.sql','0003_admin.sql','0004_check_vehicle.sql']);
     for(const source of sources) {
       expect(Buffer.from(source.sql)).toEqual(await readFile(source.path)); expect(source.sha256).toMatch(/^[0-9a-f]{64}$/);
       expect(buildMigrationPayload(source)).toBe(`${source.sql}\nINSERT INTO "d1_migrations" (name)\nvalues ('${source.filename}');`);
