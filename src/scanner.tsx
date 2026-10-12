@@ -13,14 +13,11 @@ import { EmptyState, Spinner } from './components/ui/layout';
 import { Skeleton } from './components/ui/skeleton';
 import { RaidHistoryPanel } from './history';
 
-export const LOOKUP_DEBOUNCE_MS = 600;
-
 /** Awalan pelat default: mempercepat pengetikan, tetap bisa dihapus manual via backspace. */
 export const NOPOL_PREFIX = 'DH';
 
 type ScanState =
   | { kind: 'idle' }
-  | { kind: 'queued'; nopol: string }
   | { kind: 'loading'; nopol: string }
   | { kind: 'found'; nopol: string; result: VehicleFound }
   | { kind: 'not-found'; nopol: string; requestId: string }
@@ -36,16 +33,13 @@ export function Scanner() {
   const [value, setValue] = useState(NOPOL_PREFIX);
   const [state, setState] = useState<ScanState>({ kind: 'idle' });
   const current = useRef<ScanState>({ kind: 'idle' });
-  const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const controller = useRef<AbortController | null>(null);
   const sequence = useRef(0);
   // Set by the separate history panel; called once per displayed FOUND/NOT_FOUND to refresh its head.
   const historyRefresh = useRef<(() => void) | null>(null);
   const apply = useCallback((next: ScanState) => { current.current = next; setState(next); }, []);
-  // Invalidates every pending debounce and in-flight lookup; late responses are ignored by sequence.
+  // Invalidates every in-flight lookup; late responses are ignored by sequence.
   const cancel = useCallback(() => {
-    if (timer.current) clearTimeout(timer.current);
-    timer.current = null;
     controller.current?.abort(); controller.current = null;
     sequence.current++;
   }, []);
@@ -122,13 +116,9 @@ export function Scanner() {
   function change(event: ChangeEvent<HTMLInputElement>) {
     const next = event.target.value;
     setValue(next);
-    const nopol = normalizeNopol(next);
     cancel();
-    // Every edit clears the previous vehicle immediately, including whitespace-only edits.
-    if (!enabled || !nopol) { apply({ kind: 'idle' }); return; }
-    apply({ kind: 'queued', nopol });
-    const seq = sequence.current;
-    timer.current = setTimeout(() => { timer.current = null; if (seq === sequence.current) void lookup(nopol); }, LOOKUP_DEBOUNCE_MS);
+    // Pencarian hanya dipicu via Enter; setiap edit langsung membersihkan hasil sebelumnya.
+    if (current.current.kind !== 'idle') apply({ kind: 'idle' });
   }
   function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -137,6 +127,8 @@ export function Scanner() {
     if (!nopol) return;
     const active = current.current;
     if (active.kind !== 'idle' && active.nopol === nopol && (active.kind === 'loading' || active.kind === 'found' || active.kind === 'not-found')) return;
+    // Tutup keyboard agar hasil terlihat utuh di layar.
+    input.current?.blur();
     void lookup(nopol);
   }
   function clear() {
@@ -154,7 +146,7 @@ export function Scanner() {
     <div className="scanner-search">
       <h1 id="scanner-title" className="sr-only">Scanner</h1>
       {raid && <SessionBar location={raid.location.name} lane={raid.lane} />}
-      <form role="search" aria-label="Cari kendaraan" onSubmit={submit} className="flex flex-col gap-2">
+      <form role="search" aria-label="Cari kendaraan" onSubmit={submit} autoComplete="off" className="flex flex-col gap-2">
         <label htmlFor="nopol-input" className="font-medium">Nomor polisi (NOPOL)</label>
         <NopolInput
           ref={input} id="nopol-input" name="nopol" type="text" value={value} onChange={change} disabled={!enabled}
@@ -162,12 +154,11 @@ export function Scanner() {
           placeholder="DH 1234 ZZ" aria-describedby={describedBy} aria-invalid={state.kind === 'input-error'}
           showClear={enabled && value !== '' && value !== NOPOL_PREFIX} onClear={clear}
         />
-        <p id="nopol-help" className="text-sm">Pencarian otomatis setelah selesai mengetik. Tekan Enter untuk mencari segera.</p>
+        <p id="nopol-help" className="text-sm">Tekan Enter atau tombol Cari di keyboard untuk mencari.</p>
       </form>
       {/* The live region stays mounted so screen readers reliably announce loading changes. */}
-      <p id="lookup-status" role="status" className={state.kind === 'loading' || state.kind === 'queued' ? 'flex min-h-5 items-center gap-2 text-sm' : 'sr-only'}>
+      <p id="lookup-status" role="status" className={state.kind === 'loading' ? 'flex min-h-5 items-center gap-2 text-sm' : 'sr-only'}>
         {state.kind === 'loading' && <><Spinner />Mencari data {state.nopol}…</>}
-        {state.kind === 'queued' && <><Spinner />Menunggu ketikan selesai…</>}
       </p>
     </div>
     {!raid && state.kind !== 'raid-required' && <div className="panel flex flex-col gap-3">

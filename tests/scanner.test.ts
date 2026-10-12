@@ -260,20 +260,19 @@ describe('scanner shell and navigation', () => {
 });
 
 describe('scanner lookup flow', () => {
-  it('debounces 600 ms and only issues valid lookups', async () => {
+  it('only issues valid lookups on Enter, never while typing', async () => {
     const input = await ready();
     vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
     fireEvent.change(input, { target: { value: 'dh' } });
-    expect(screen.queryByText(/Format NOPOL belum valid/)).toBeNull();
     await act(async () => { await vi.advanceTimersByTimeAsync(2000); });
     expect(lookupCalls()).toHaveLength(0);
     fireEvent.change(input, { target: { value: 'dh 1234' } });
-    await act(async () => { await vi.advanceTimersByTimeAsync(300); });
-    fireEvent.change(input, { target: { value: 'dh 1234 zz' } });
-    expect(screen.queryByText(/Format NOPOL belum valid/)).toBeNull();
-    await act(async () => { await vi.advanceTimersByTimeAsync(599); });
+    await act(async () => { await vi.advanceTimersByTimeAsync(2000); });
     expect(lookupCalls()).toHaveLength(0);
-    await act(async () => { await vi.advanceTimersByTimeAsync(1); });
+    fireEvent.change(input, { target: { value: 'dh 1234 zz' } });
+    await act(async () => { await vi.advanceTimersByTimeAsync(2000); });
+    expect(lookupCalls()).toHaveLength(0);
+    fireEvent.submit(input.form!);
     expect(lookupCalls()).toHaveLength(1);
     expect(lookupCalls()[0]![1]!.body).toBe('{"nopol":"DH1234ZZ"}');
     vi.useRealTimers();
@@ -289,7 +288,7 @@ describe('scanner lookup flow', () => {
     await act(async () => { await vi.advanceTimersByTimeAsync(700); });
     expect(lookupCalls()).toHaveLength(0);
   });
-  it('Enter looks up immediately, cancels debounce and does not duplicate', async () => {
+  it('Enter looks up immediately, dismisses the keyboard and does not duplicate', async () => {
     const pending = deferred<Response>();
     const input = await ready(auth(), () => pending.promise);
     vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
@@ -297,6 +296,7 @@ describe('scanner lookup flow', () => {
     fireEvent.submit(input.form!);
     expect(lookupCalls()).toHaveLength(1);
     expect(lookupStatus().textContent).toContain('Mencari data DH1234ZZ');
+    expect(document.activeElement).not.toBe(input);
     fireEvent.submit(input.form!);
     await act(async () => { await vi.advanceTimersByTimeAsync(1000); });
     expect(lookupCalls()).toHaveLength(1);
@@ -305,16 +305,16 @@ describe('scanner lookup flow', () => {
     await screen.findByRole('heading', { name: 'DH1234ZZ' });
     fireEvent.submit(input.form!);
     expect(lookupCalls()).toHaveLength(1);
-    expect(document.activeElement).toBe(input);
+    expect(document.activeElement).not.toBe(input);
   });
-  it('keeps the same live region mounted, compact when idle and visible while queued or loading', async () => {
+  it('keeps the same live region mounted, compact when idle and visible while loading', async () => {
     const pending = deferred<Response>();
     const input = await ready(auth(), () => pending.promise);
     const status = lookupStatus();
     expect(status.className).toBe('sr-only'); expect(status.textContent).toBe('');
     fireEvent.change(input, { target: { value: 'DH1234ZZ' } });
-    expect(lookupStatus()).toBe(status); expect(status.classList.contains('sr-only')).toBe(false);
-    expect(status.classList.contains('min-h-5')).toBe(true); expect(status.textContent).toContain('Menunggu ketikan selesai');
+    expect(lookupStatus()).toBe(status); expect(status.className).toBe('sr-only'); expect(status.textContent).toBe('');
+    expect(lookupCalls()).toHaveLength(0);
     fireEvent.submit(input.form!);
     expect(lookupStatus()).toBe(status); expect(status.textContent).toContain('Mencari data DH1234ZZ');
     expect(status.classList.contains('sr-only')).toBe(false); expect(status.classList.contains('min-h-5')).toBe(true);
@@ -460,7 +460,7 @@ describe('scanner lookup flow', () => {
     expect(screen.queryByRole('article')).toBeNull();
     expect(screen.queryByText('Pemilik Sintetis')).toBeNull();
   });
-  it('clears result even for a whitespace edit and cancels queued lookup with X', async () => {
+  it('clears result even for a whitespace edit and resets with X', async () => {
     await ready();
     await search('DH1234ZZ');
     await screen.findByRole('article');
