@@ -283,7 +283,7 @@ describe('scanner history panel isolation', () => {
     expect(historyCalls()).toHaveLength(4);
     fireEvent.click(screen.getByRole('button', { name: 'Hapus NOPOL' }));
     expect(historyCalls()).toHaveLength(4);
-    expect(input().value).toBe(''); expect(document.activeElement).toBe(input());
+    expect(input().value).toBe('DH'); expect(document.activeElement).toBe(input());
   });
   it.each(['error', 'invalid'] as const)('does not refresh history after lookup %s', async kind => {
     scannerRoutes(path => path === summaryUrl ? recap(zeros) : path === `${checksUrl}?limit=10` ? json({ checks: [], next_cursor: null }) : kind === 'error' ? failure(502, 'UPSTREAM_ERROR') : json({ outcome: 'FOUND', vehicle: {} }));

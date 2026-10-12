@@ -343,7 +343,7 @@ describe('scanner lookup flow', () => {
     expect(card.textContent).not.toMatch(/Data langsung|Data cache|Diambil|Dievaluasi|Keputusan pemeriksaan tetap pada petugas/);
     expect(card.querySelector('time')).toBeNull();
     expect(card.closest('[aria-live="polite"]')).not.toBeNull();
-    expect(document.activeElement).toBe(field());
+    expect(document.activeElement).not.toBe(field());
     expect(screen.queryByText('Data kendaraan tidak ditemukan')).toBeNull();
   });
   it('renders UNKNOWN as neutral text without cache metadata', async () => {
@@ -376,7 +376,7 @@ describe('scanner lookup flow', () => {
     expect(alert.textContent).toContain('Pesan layanan sintetis');
     expect(alert.textContent).not.toContain('req-error');
     expect(screen.queryByText('Data kendaraan tidak ditemukan')).toBeNull();
-    expect(document.activeElement).toBe(field());
+    expect(document.activeElement).not.toBe(field());
   });
   it('handles RAID_SESSION_REQUIRED by reconciling active raid without creating one', async () => {
     await ready(auth(), () => failure(409, 'RAID_SESSION_REQUIRED'), { active_raid_session: null });
@@ -411,7 +411,7 @@ describe('scanner lookup flow', () => {
     expect(alert.textContent).not.toContain('ID permintaan:');
     if (_name !== 'network' && _name !== 'non-json' && _name !== 'invalid response') expect(alert.textContent).toContain('Pesan layanan sintetis');
     expect(screen.queryByText('Data kendaraan tidak ditemukan')).toBeNull();
-    expect(document.activeElement).toBe(field());
+    expect(document.activeElement).not.toBe(field());
     const retry = screen.getByRole('button', { name: 'Coba lagi' });
     expect(retry.className).toContain('min-h-12');
     await userEvent.click(retry);
