@@ -5,7 +5,7 @@ import { clearSessionCookie, currentAuth, requireAuth, requireRole } from './ses
 import type { App, AppEnv } from './types';
 
 export type HistoryRaid = RaidSession & { owner: { id: string; username: string } };
-export type HistoryCheck = { id: string; nopol: string; outcome: 'FOUND' | 'NOT_FOUND'; tax_status: 'ACTIVE' | 'EXPIRED' | 'UNKNOWN' | null; stnk_status: 'ACTIVE' | 'EXPIRED' | 'UNKNOWN' | null; source: 'LIVE' | 'CACHE'; checked_at: number };
+export type HistoryCheck = { id: string; nopol: string; outcome: 'FOUND' | 'NOT_FOUND'; tax_status: 'ACTIVE' | 'EXPIRED' | 'UNKNOWN' | null; stnk_status: 'ACTIVE' | 'EXPIRED' | 'UNKNOWN' | null; source: 'LIVE' | 'CACHE'; checked_at: number; vehicle_brand: string | null; vehicle_type: string | null; vehicle_color: string | null };
 type RaidRow = { id: string; lane: string; status: 'ACTIVE' | 'CLOSED'; started_at: number; closed_at: number | null; location_id: string; location_name: string; owner_id: string; owner_username: string };
 type Cursor = { epoch: number; id: string };
 type Page = { limit: number; cursor: Cursor | null };
@@ -93,7 +93,7 @@ export function registerHistoryRoutes(app: App): void {
       const bindings = [auth.role, auth.sessionId, auth.userId];
       const prefix = `WITH auth AS (${AUTH}), target AS (${TARGET})`;
       const statement = kind === 'checks'
-        ? db.prepare(`${prefix} SELECT id, nopol, outcome, tax_status, stnk_status, source, checked_at FROM check_logs
+        ? db.prepare(`${prefix} SELECT id, nopol, outcome, tax_status, stnk_status, source, checked_at, vehicle_brand, vehicle_type, vehicle_color FROM check_logs
           WHERE raid_session_id = ? AND EXISTS (SELECT 1 FROM target) ${page.cursor ? 'AND (checked_at, id) < (?, ?)' : ''}
           ORDER BY checked_at DESC, id DESC LIMIT ?`).bind(...bindings, id, id, ...(page.cursor ? [page.cursor.epoch, page.cursor.id] : []), page.limit + 1)
         : db.prepare(`${prefix} SELECT COUNT(*) AS total_checks,

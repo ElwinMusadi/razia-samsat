@@ -300,11 +300,14 @@ export function RaidHistoryPanel({ raidId, refreshRef }: { raidId: string; refre
       </dl>
       {data.checks.length === 0 ? <p>Belum ada pengecekan tercatat pada sesi ini.</p>
         : <ol aria-label="Pengecekan terbaru" className="flex flex-col gap-2">
-          {data.checks.map(check => <li key={check.id} data-check-id={check.id} className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-input bg-white p-2 text-black">
-            <span className="break-all font-extrabold tracking-wider">{check.nopol}</span>
-            {check.outcome === 'FOUND' ? <span className="flex items-center gap-1 text-sm">Pajak <StatusBadge status={check.tax_status} /></span> : <span className="text-sm font-semibold">Tidak ditemukan</span>}
-            <Instant seconds={check.checked_at} />
-          </li>)}
+          {data.checks.map(check => {
+            const vehicle = [check.vehicle_type, check.vehicle_color].filter(Boolean).join(' • ');
+            return <li key={check.id} data-check-id={check.id} className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-input bg-white p-2 text-black">
+              <span className="break-all font-extrabold tracking-wider">{check.nopol}</span>
+              {check.outcome === 'FOUND' ? <span className="flex items-center gap-1 text-sm">Pajak <StatusBadge status={check.tax_status} /></span> : <span className="text-sm font-semibold">Tidak ditemukan</span>}
+              {vehicle ? <span className="text-sm text-secondary-foreground">{vehicle}</span> : null}
+            </li>;
+          })}
         </ol>}
       <p className="text-sm">{SNAPSHOT_NOTE}</p>
     </>}

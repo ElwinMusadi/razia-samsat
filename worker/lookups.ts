@@ -81,9 +81,9 @@ export function registerLookupRoutes(app: App, logger: SafeLogger, dependencies:
     background((async () => {
       try {
         await c.env.DB.prepare(`INSERT INTO check_logs
-          (id, raid_session_id, user_id, idempotency_key, nopol, outcome, tax_status, stnk_status, source, checked_at)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(raid_session_id, nopol) DO NOTHING`)
-          .bind(crypto.randomUUID(), raidId, userId, requestId, nopol, outcome, taxStatus, stnkStatus, provenance, checkedAt).run();
+          (id, raid_session_id, user_id, idempotency_key, nopol, outcome, tax_status, stnk_status, source, checked_at, vehicle_brand, vehicle_type, vehicle_color)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(raid_session_id, nopol) DO NOTHING`)
+          .bind(crypto.randomUUID(), raidId, userId, requestId, nopol, outcome, taxStatus, stnkStatus, provenance, checkedAt, vehicle?.brand ?? null, vehicle?.type ?? null, vehicle?.color ?? null).run();
       } catch {
         logger({ event: 'history_write_failed', request_id: requestId });
       }

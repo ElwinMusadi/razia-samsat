@@ -111,7 +111,7 @@ export type HistoryOwner = { id: string; username: string };
 export type HistoryRaid = RaidSession & { owner: HistoryOwner };
 export type HistoryCheck = {
   id: string; nopol: string; outcome: 'FOUND' | 'NOT_FOUND'; tax_status: VehicleStatus | null; stnk_status: VehicleStatus | null;
-  source: 'LIVE' | 'CACHE'; checked_at: number;
+  source: 'LIVE' | 'CACHE'; checked_at: number; vehicle_brand: string | null; vehicle_type: string | null; vehicle_color: string | null;
 };
 export type HistorySummary = { total_checks: number; found: number; not_found: number; tax_active: number; tax_expired: number; tax_unknown: number };
 export type HistoryRaidPage = { raid_sessions: HistoryRaid[]; next_cursor: string | null };
@@ -131,15 +131,22 @@ export function parseHistoryRaid(value: unknown): HistoryRaid {
   if (!object(owner) || !id(owner.id) || !historyUsername(owner.username)) return invalid();
   return { ...raid, owner: { id: owner.id, username: owner.username } };
 }
+const vehicleLabel = (value: unknown): value is string | null =>
+  value === null || value === undefined || (typeof value === 'string' && value.length > 0 && value.length <= 200);
 export function parseHistoryCheck(value: unknown): HistoryCheck {
   if (!object(value) || !id(value.id) || typeof value.nopol !== 'string' || normalizeNopol(value.nopol) !== value.nopol || !epoch(value.checked_at)) return invalid();
   const base = { id: value.id, nopol: value.nopol, checked_at: value.checked_at };
+  // Vehicle identity is a newer optional snapshot: missing (pre-migration rows) reads as null.
+  const brand = value.vehicle_brand ?? null;
+  const type = value.vehicle_type ?? null;
+  const color = value.vehicle_color ?? null;
+  if (!vehicleLabel(brand) || !vehicleLabel(type) || !vehicleLabel(color)) return invalid();
   if (value.outcome === 'NOT_FOUND') {
-    if (value.tax_status !== null || value.stnk_status !== null || value.source !== 'LIVE') return invalid();
-    return { ...base, outcome: 'NOT_FOUND', tax_status: null, stnk_status: null, source: 'LIVE' };
+    if (value.tax_status !== null || value.stnk_status !== null || value.source !== 'LIVE' || brand !== null || type !== null || color !== null) return invalid();
+    return { ...base, outcome: 'NOT_FOUND', tax_status: null, stnk_status: null, source: 'LIVE', vehicle_brand: null, vehicle_type: null, vehicle_color: null };
   }
   if (value.outcome !== 'FOUND' || !vehicleStatus(value.tax_status) || !vehicleStatus(value.stnk_status) || (value.source !== 'LIVE' && value.source !== 'CACHE')) return invalid();
-  return { ...base, outcome: 'FOUND', tax_status: value.tax_status, stnk_status: value.stnk_status, source: value.source };
+  return { ...base, outcome: 'FOUND', tax_status: value.tax_status, stnk_status: value.stnk_status, source: value.source, vehicle_brand: brand, vehicle_type: type, vehicle_color: color };
 }
 export function parseHistorySummary(value: unknown): HistorySummary {
   if (!object(value) || !count(value.total_checks) || !count(value.found) || !count(value.not_found) || !count(value.tax_active) || !count(value.tax_expired) || !count(value.tax_unknown)) return invalid();
