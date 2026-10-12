@@ -92,9 +92,10 @@ describe('authoritative ordered atomic migration files on actual D1/workerd', ()
         expect((await baseline.db.prepare('PRAGMA foreign_key_check').all()).results).toEqual([]);
       }
       const current = (await baseline.db.prepare('SELECT * FROM check_logs ORDER BY id').all()).results as Record<string,unknown>[];
-      // 0004 adds nullable vehicle snapshot columns; pre-migration rows keep NULL.
       expect(current.map(({vehicle_brand,vehicle_type,vehicle_color,...rest})=>rest)).toEqual(original);
-      expect(current.every(row=>row.vehicle_brand===null&&row.vehicle_type===null&&row.vehicle_color===null)).toBe(true);
+      // 0004 adds nullable vehicle snapshot columns; pre-migration rows keep NULL.
+      // (In the duplicates case the upgrade fails by design, so the columns do not exist.)
+      if (kind === 'compatible') expect(current.every(row=>row.vehicle_brand===null&&row.vehicle_type===null&&row.vehicle_color===null)).toBe(true);
       expect(original).toHaveLength(3);
     } finally { await baseline.mf.dispose(); }
   });
