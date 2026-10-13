@@ -608,9 +608,71 @@ describe('scanner lookup flow', () => {
     expect(screen.queryByRole('alert')).toBeNull();
   });
   it('active reconciliation 401 redirects to login through read()', async () => {
-    await ready(auth(), () => failure(409, 'RAID_SESSION_REQUIRED'));
-    fetchMock.mockImplementation(async input => input === '/api/vehicle-lookups' ? failure(409, 'RAID_SESSION_REQUIRED') : failure(401, 'AUTHENTICATION_ERROR'));
+    const activeFailure = deferred<Response>();
+    const session = auth();
+    await ready(session, () => failure(409, 'RAID_SESSION_REQUIRED'));
+    const previous = fetchMock.getMockImplementation()!;
+    fetchMock.mockImplementation((input, init) =>
+      input === '/api/raid-sessions/active' ? activeFailure.promise : previous(input, init),
+    );
     await search('DH1234ZZ');
+    expect(screen.queryByRole('heading', { name: 'Masuk' })).toBeNull();
+    expect(screen.getByTestId('path').textContent).toBe('/razia/scanner');
+    expect(lookupCalls()).toHaveLength(1);
+    await waitFor(() => expect(fetchMock.mock.calls.some(([path]) => path === '/api/raid-sessions/active')).toBe(true));
+    await act(async () => activeFailure.resolve(failure(401, 'AUTHENTICATION_ERROR')));
+    await screen.findByRole('heading', { name: 'Masuk' });
+    expect(screen.getByTestId('path').textContent).toBe('/login');
+  });
+  it('preserves auth and active reconciliation when background history requests complete concurrently', async () => {
+    const historySummary = deferred<Response>();
+    const activeFailure = deferred<Response>();
+    const session = auth();
+    routes(session, () => failure(409, 'RAID_SESSION_REQUIRED'));
+    const previous = fetchMock.getMockImplementation()!;
+    fetchMock.mockImplementation((input, init) => {
+      if (input === '/api/raid-sessions/active') return activeFailure.promise;
+      if (String(input).endsWith('/summary')) return historySummary.promise;
+      return previous(input, init);
+    });
+    mount();
+    await screen.findByLabelText('Nomor polisi (NOPOL)');
+    await waitFor(() => expect(fetchMock.mock.calls.some(([path]) => String(path).endsWith('/summary'))).toBe(true));
+    const user = userEvent.setup();
+    await user.clear(field());
+    await user.type(field(), 'DH1234');
+    expect(screen.getByTestId('path').textContent).toBe('/razia/scanner');
+    await act(async () => historySummary.resolve(json({ raid_session: { ...raid, owner: session.user }, summary: { total_checks: 0, found: 0, not_found: 0, tax_active: 0, tax_expired: 0, tax_unknown: 0 } })));
+    expect(field().value).toBe('DH1234');
+    await user.type(field(), 'ZZ{Enter}');
+    await waitFor(() => expect(fetchMock.mock.calls.some(([path]) => path === '/api/raid-sessions/active')).toBe(true));
+    expect(lookupCalls()).toHaveLength(1);
+    expect(screen.getByTestId('path').textContent).toBe('/razia/scanner');
+    await act(async () => activeFailure.resolve(failure(401, 'AUTHENTICATION_ERROR')));
+    await screen.findByRole('heading', { name: 'Masuk' });
+    expect(screen.getByTestId('path').textContent).toBe('/login');
+  });
+  it('preserves auth session and active reconciliation when auth/me revalidates successfully', async () => {
+    const activeFailure = deferred<Response>();
+    const authRefresh = deferred<Response>();
+    const session = auth();
+    await ready(session, () => failure(409, 'RAID_SESSION_REQUIRED'));
+    const previous = fetchMock.getMockImplementation()!;
+    fetchMock.mockImplementation((input, init) => {
+      if (input === '/api/raid-sessions/active') return activeFailure.promise;
+      if (input === '/api/auth/me') return authRefresh.promise;
+      return previous(input, init);
+    });
+    fireEvent(window, new Event('focus'));
+    await waitFor(() => expect(fetchMock.mock.calls.filter(([path]) => path === '/api/auth/me')).toHaveLength(2));
+    await act(async () => authRefresh.resolve(json(session)));
+    await waitFor(() => expect(field().disabled).toBe(false));
+    await search('DH1234ZZ');
+    expect(screen.queryByRole('heading', { name: 'Masuk' })).toBeNull();
+    expect(screen.getByTestId('path').textContent).toBe('/razia/scanner');
+    expect(lookupCalls()).toHaveLength(1);
+    await waitFor(() => expect(fetchMock.mock.calls.some(([path]) => path === '/api/raid-sessions/active')).toBe(true));
+    await act(async () => activeFailure.resolve(failure(401, 'AUTHENTICATION_ERROR')));
     await screen.findByRole('heading', { name: 'Masuk' });
     expect(screen.getByTestId('path').textContent).toBe('/login');
   });
