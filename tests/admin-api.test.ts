@@ -132,7 +132,8 @@ describe('admin locations contracts', () => {
     expect(parseAdminLocation(location(), uuid(1))).toEqual(location());
   });
   it('sends PATCH and DELETE with the right method and body', async () => {
-    const fetcher = vi.fn<typeof fetch>().mockResolvedValue(json(location()));
+    const fetcher = vi.fn<typeof fetch>().mockImplementation(async input =>
+      String(input) === '/api/admin/locations' ? json({ locations: [location()] }) : json(location()));
     vi.stubGlobal('fetch', fetcher);
     await api.adminCreateLocation('Jln. El Tari');
     expect(fetcher).toHaveBeenLastCalledWith('/api/admin/locations', expect.objectContaining({ method: 'POST', body: JSON.stringify({ name: 'Jln. El Tari' }) }));

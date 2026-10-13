@@ -134,7 +134,7 @@ describe('admin locations CRUD', () => {
  });
  it('keeps raid history intact after its location is deactivated', async () => {
   const id = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
-  await sql(`INSERT INTO raid_sessions(id,user_id,location_id,lane,status,started_at) VALUES(?,?,?,?,?,unixepoch())`,
+  await sql(`INSERT INTO raid_sessions(id,user_id,location_id,lane,status,started_at,closed_at) VALUES(?,?,?,?,?,unixepoch(),unixepoch())`,
    'cccccccc-cccc-4ccc-8ccc-cccccccccccc', IDS.admin, id, 'A', 'CLOSED');
   await call('DELETE', `${BASE}/${id}`, {}, tokens.admin);
   const row = await db.prepare('SELECT location_id FROM raid_sessions WHERE id = ?').bind('cccccccc-cccc-4ccc-8ccc-cccccccccccc').first<{ location_id: string }>('location_id');

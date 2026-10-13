@@ -66,11 +66,11 @@ describe('admin list, guards and navigation', () => {
     expect([...screen.getByRole('navigation').firstElementChild!.children].map(node => node.textContent)).toEqual(['Scanner', 'Sesi', 'Riwayat']);
     expect(screen.getByTestId('path').textContent).toBe(path); expect(screen.getByRole('button', { name: 'Keluar' })).toBeTruthy();
   });
-  it('uses four ADMIN destinations and places logout only in the account header', async () => {
+  it('uses five ADMIN destinations and places logout only in the account header', async () => {
     routes(); mount(); await screen.findByRole('list', { name: 'Daftar pengguna' });
     const link = screen.getByRole('link', { name: 'Admin' }); expect(link.closest('header')).toBeNull();
     expect(link.classList.contains('nav-link')).toBe(true); expect(link.getAttribute('aria-current')).toBe('page');
-    const nav = screen.getByRole('navigation'); expect([...nav.firstElementChild!.children].map(node => node.textContent)).toEqual(['Scanner', 'Sesi', 'Riwayat', 'Admin']);
+    const nav = screen.getByRole('navigation'); expect([...nav.firstElementChild!.children].map(node => node.textContent)).toEqual(['Scanner', 'Sesi', 'Riwayat', 'Admin', 'Lokasi']);
     for (const control of [...nav.firstElementChild!.children]) {
       expect(control.classList.contains('nav-link')).toBe(true);
       expect(control.getAttribute('aria-current')).toBe(control.textContent === 'Admin' ? 'page' : null);
