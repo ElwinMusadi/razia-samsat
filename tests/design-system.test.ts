@@ -64,7 +64,7 @@ describe('approved design foundation', () => {
   it('retains interactive focus outlines and scopes the scanner account panel upward', () => {
     expect(css).toContain('input:focus-visible, select:focus-visible, a:focus-visible, button:focus-visible, summary:focus-visible { outline: 2px solid var(--ring); outline-offset: 3px; }');
     expect(css).not.toMatch(/outline:\s*(?:none|0)\b/);
-    expect(css).toContain('.scanner-session-controls { margin-top: var(--space-4); }');
+    expect(css).toContain('.scanner-session-controls { margin-top: var(--space-4); position: relative; z-index: 10; }');
     expect(css).toContain('.scanner-session-controls .account-panel { top: auto; bottom: calc(100% + var(--space-2)); }');
     expect(css).toMatch(/\.account-panel \{[^}]*top: calc\(100% \+ var\(--space-2\)\); width: min\(288px, calc\(100vw - var\(--space-8\)\)\)/);
   });
@@ -76,6 +76,35 @@ describe('approved design foundation', () => {
     expect(css).not.toMatch(/\.sr-only\s*\{/);
     // The pre-existing horizontal sticky-search bleed is the only negative margin utility.
     expect(css.match(/-(?:m[trblxy]?)-\d+/g)).toEqual(['-mx-4']);
+  });
+  it('reserves space beyond the fixed navigation and isolates the scanner footer stacking', async () => {
+    const app = await readFile(`${process.cwd()}/src/app.tsx`, 'utf8');
+    const reserve = '\n.operational-layout { padding-bottom: calc(6rem + var(--space-8) + env(safe-area-inset-bottom, 0px)); }';
+    expect(css).toContain(reserve);
+    expect(css.indexOf(reserve)).toBeGreaterThan(css.indexOf('@media (min-width: 1024px) {'));
+    expect(css).toContain('.scanner-session-controls { margin-top: var(--space-4); position: relative; z-index: 10; }');
+    expect(app).toContain('className="bottom-navigation fixed inset-x-0 bottom-0 z-20"');
+    expect(app).toContain('page-layout operational-layout pb-[calc(6rem+env(safe-area-inset-bottom,0px))]');
+    expect(css).toContain('.scanner-session-controls .account-panel { top: auto; bottom: calc(100% + var(--space-2)); }');
+    // Require a top-level rule: layered CSS would lose to desktop page padding.
+    const prefix = css.slice(0, css.indexOf(reserve)).replace(/\/\*[\s\S]*?\*\//g, '');
+    expect([...prefix].reduce((depth, char) => depth + (char === '{' ? 1 : char === '}' ? -1 : 0), 0)).toBe(0);
+  });
+  it('attaches the scanner notch with concave shoulders and accessible dark contrast', () => {
+    const notch = css.match(/\.session-bar\.scanner-notch \{([^}]+)\}/)![1]!;
+    expect(notch).toContain('width: min(560px, calc(100% - 2 * var(--notch-radius)))');
+    expect(notch).toContain('min-height: 44px');
+    expect(notch).toContain('border-radius: 0 0 var(--notch-radius) var(--notch-radius)');
+    expect(css).toContain('--notch-radius: var(--radius-md)');
+    expect(css).toContain('.scanner-search:has(.scanner-notch) { padding-top: 0; }');
+    expect(css).toMatch(/\.session-bar\.scanner-notch::before \{[^}]*radial-gradient\(circle at 0 100%, transparent/);
+    expect(css).toMatch(/\.session-bar\.scanner-notch::after \{[^}]*radial-gradient\(circle at 100% 100%, transparent/);
+    expect(css).toMatch(/@media \(forced-colors: active\) \{[^}]*\.session-bar\.scanner-notch::before, \.session-bar\.scanner-notch::after \{ display: none; \}/);
+    expect(css).not.toMatch(/scanner-notch[^{]*\{[^}]*(?:mask|clip-path|backdrop-filter)/);
+    for (const hex of ['#F7F9FB', '#CBD5E1', '#A7F3D0']) {
+      expect(css).toContain(hex);
+      expect(contrast(rgb(hex), rgb('#090B0D'))).toBeGreaterThanOrEqual(4.5);
+    }
   });
   it('forwards an Input ref and associated label unchanged', () => {
     const ref = createRef<HTMLInputElement>(); render(createElement('label', null, 'Jalur', createElement(Input, { ref, name: 'lane' })));

@@ -200,6 +200,14 @@ describe('scanner shell and navigation', () => {
     expect(input.className).toContain('nopol-input');
     expect(input.disabled).toBe(false);
     expect(screen.getByText(/Lokasi sintetis · Jalur arah pusat kota/)).toBeTruthy();
+    const notch = screen.getByText(/Lokasi sintetis · Jalur arah pusat kota/).closest<HTMLElement>('.session-bar')!;
+    expect(notch.classList.contains('scanner-notch')).toBe(true);
+    expect(document.querySelectorAll('.scanner-notch')).toHaveLength(1);
+    expect(notch.parentElement!.className).toBe('scanner-search');
+    expect(notch.getAttribute('title')).toBe('Lokasi sintetis · Jalur arah pusat kota');
+    expect(notch.querySelector('.sr-only')!.textContent).toBe('Sesi razia aktif: ');
+    expect(notch.querySelector('svg')!.getAttribute('aria-hidden')).toBe('true');
+    expect(within(notch).getByText('SESI AKTIF')).toBeTruthy();
     expect(screen.getByRole('search', { name: 'Cari kendaraan' })).toBeTruthy();
     expect(lookupStatus().textContent).toBe('');
     expect(lookupStatus().className).toBe('sr-only'); expect(lookupStatus().hasAttribute('hidden')).toBe(false);

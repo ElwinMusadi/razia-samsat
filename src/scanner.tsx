@@ -145,7 +145,7 @@ export function Scanner() {
   return <section aria-labelledby="scanner-title" className="flex flex-col gap-3">
     <div className="scanner-search">
       <h1 id="scanner-title" className="sr-only">Scanner</h1>
-      {raid && <SessionBar location={raid.location.name} lane={raid.lane} />}
+      {raid && <SessionBar className="scanner-notch" location={raid.location.name} lane={raid.lane} />}
       <form role="search" aria-label="Cari kendaraan" onSubmit={submit} autoComplete="off" className="flex flex-col gap-2">
         <label htmlFor="nopol-input" className="font-medium">Nomor polisi (NOPOL)</label>
         <NopolInput

@@ -23,6 +23,8 @@
   --primary-foreground: #FFFFFF;
   --dark-surface: #0A0A0C;
   --dark-tile: #17181B;
+  --notch-background: #090B0D; --notch-foreground: #F7F9FB; --notch-muted: #CBD5E1; --notch-active: #A7F3D0;
+  --notch-radius: var(--radius-md);
   --success: #16803C;
   --danger: #C62828;
   --neutral: #6B7280;
@@ -105,7 +107,7 @@
   .app-header-row { position: relative; z-index: 1; }
   .scanner-session-controls .app-header { background: var(--card); border: 1px solid var(--chrome-border); }
   .scanner-session-controls .app-header::before { display: none; }
-  .scanner-session-controls { margin-top: var(--space-4); }
+  .scanner-session-controls { margin-top: var(--space-4); position: relative; z-index: 10; }
   .scanner-session-controls .account-panel { top: auto; bottom: calc(100% + var(--space-2)); }
   .app-header-row { @apply flex min-w-0 items-center justify-between gap-2; }
   .app-brand { @apply text-sm font-bold tracking-widest; }
@@ -188,6 +190,9 @@
   .reading-layout > ul { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); align-items: start; }
   .reading-layout .metrics-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 }
+/* Keep the footer clear of the fixed navigation at every breakpoint, including its raised FAB.
+   Unlayered to preserve this reserve over the desktop page padding and shell utility. */
+.operational-layout { padding-bottom: calc(6rem + var(--space-8) + env(safe-area-inset-bottom, 0px)); }
 /* At 320px: 4 x 48 + 56 + 4 x 2 + 2 x 8 + 2 borders = 274px, inside 288px.
    This is source-level sizing, not a measurement of rendered navigation. */
 @media (max-width: 359px) {
@@ -322,4 +327,27 @@
   .installation-card[open] .install-chevron {
     transform: rotate(180deg);
   }
+}
+
+/* Scanner-only notch: an opaque session bar with transparent concave shoulders. */
+.scanner-search:has(.scanner-notch) { padding-top: 0; }
+.session-bar.scanner-notch {
+  position: relative; align-self: center; width: min(560px, calc(100% - 2 * var(--notch-radius)));
+  min-height: 44px; border: 0; border-radius: 0 0 var(--notch-radius) var(--notch-radius);
+  background: var(--notch-background); color: var(--notch-foreground); font-size: 13px; font-weight: 500;
+}
+.session-bar.scanner-notch > svg { color: var(--notch-muted); }
+.session-bar.scanner-notch .session-bar-live { color: var(--notch-active); }
+.session-bar.scanner-notch .session-bar-dot { background: var(--notch-active); }
+.session-bar.scanner-notch::before, .session-bar.scanner-notch::after {
+  content: ''; position: absolute; top: 0; width: var(--notch-radius); height: var(--notch-radius); pointer-events: none;
+}
+.session-bar.scanner-notch::before { right: 100%;
+  background: radial-gradient(circle at 0 100%, transparent calc(var(--notch-radius) - 0.5px), var(--notch-background) var(--notch-radius)); }
+.session-bar.scanner-notch::after { left: 100%;
+  background: radial-gradient(circle at 100% 100%, transparent calc(var(--notch-radius) - 0.5px), var(--notch-background) var(--notch-radius)); }
+@media (forced-colors: active) {
+  .session-bar.scanner-notch::before, .session-bar.scanner-notch::after { display: none; }
+  .session-bar.scanner-notch { border: 1px solid CanvasText; border-top: 0; }
+  :root { --notch-background: Canvas; --notch-foreground: CanvasText; --notch-muted: CanvasText; --notch-active: CanvasText; }
 }
