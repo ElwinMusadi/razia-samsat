@@ -204,6 +204,17 @@ export function parseAdminUsers(value: unknown, limit = 20): AdminUserPage {
   if (!object(value) || !Array.isArray(value.users) || value.users.length > limit || !nextCursor(value.next_cursor)) return invalid();
   return { users: value.users.map(item => parseAdminUser(item)), next_cursor: value.next_cursor };
 }
+export type AdminLocation = { id: string; name: string; is_active: boolean; created_at: number; updated_at: number };
+const locationName = (value: unknown): value is string => typeof value === 'string' && value.trim().length >= 1 && value.trim().length <= 200;
+export function parseAdminLocation(value: unknown, expectedId?: string): AdminLocation {
+  if (!object(value) || !id(value.id) || (expectedId !== undefined && value.id !== expectedId) || !locationName(value.name)
+    || typeof value.is_active !== 'boolean' || !epoch(value.created_at) || !epoch(value.updated_at) || value.updated_at < value.created_at) return invalid();
+  return { id: value.id, name: value.name, is_active: value.is_active, created_at: value.created_at, updated_at: value.updated_at };
+}
+export function parseAdminLocations(value: unknown): AdminLocation[] {
+  if (!object(value) || !Array.isArray(value.locations)) return invalid();
+  return value.locations.map(item => parseAdminLocation(item));
+}
 export function parseAdminSessions(value: unknown, limit = 20): AdminSessionPage {
   if (!object(value) || !Array.isArray(value.sessions) || value.sessions.length > limit || !nextCursor(value.next_cursor)) return invalid();
   return { sessions: value.sessions.map(parseAdminSession), next_cursor: value.next_cursor };
@@ -215,7 +226,7 @@ export function parseAdminMutation(value: unknown, userId: string): AdminMutatio
 const adminPath = (userId: string) => `/api/admin/users/${encodeURIComponent(userId)}`;
 
 export const REQUEST_TIMEOUT_MS = 15000;
-async function request<T>(path: string, parse: (value: unknown) => T, signal?: AbortSignal, body?: object): Promise<T> {
+async function request<T>(path: string, parse: (value: unknown) => T, signal?: AbortSignal, body?: object, method?: 'POST' | 'PATCH' | 'DELETE'): Promise<T> {
   const controller = new AbortController();
   const abort = () => controller.abort();
   signal?.addEventListener('abort', abort, { once: true });
@@ -225,7 +236,7 @@ async function request<T>(path: string, parse: (value: unknown) => T, signal?: A
   try {
     const encoded = body === undefined ? undefined : JSON.stringify(body);
     if (encoded && new TextEncoder().encode(encoded).length > 4096) throw new ApiError('Isian terlalu panjang.', 413, 'PAYLOAD_TOO_LARGE');
-    const response = await fetch(path, { method: body === undefined ? 'GET' : 'POST', credentials: 'same-origin', cache: 'no-store', signal: controller.signal, ...(encoded === undefined ? {} : { headers: { 'Content-Type': 'application/json' }, body: encoded }) });
+    const response = await fetch(path, { method: method ?? (body === undefined ? 'GET' : 'POST'), credentials: 'same-origin', cache: 'no-store', signal: controller.signal, ...(encoded === undefined ? {} : { headers: { 'Content-Type': 'application/json' }, body: encoded }) });
     if (!response.ok) {
       let value: unknown;
       try { value = await response.json(); } catch { /* Use a safe fallback for non-JSON responses. */ }
@@ -263,6 +274,14 @@ export const api = {
     rejecting(() => request(`${adminPath(userId)}/sessions${historyQuery({ limit: 20, ...page })}`, value => parseAdminSessions(value, page.limit ?? 20), signal)),
   adminRevoke: (userId: string, sessionId?: string, signal?: AbortSignal): Promise<AdminMutation> =>
     request(`${adminPath(userId)}/sessions/revoke`, value => parseAdminMutation(value, userId), signal, sessionId === undefined ? {} : { session_id: sessionId }),
+  adminLocations: (signal?: AbortSignal): Promise<AdminLocation[]> =>
+    request('/api/admin/locations', parseAdminLocations, signal),
+  adminCreateLocation: (name: string, signal?: AbortSignal): Promise<AdminLocation> =>
+    request('/api/admin/locations', value => parseAdminLocation(value), signal, { name }),
+  adminUpdateLocation: (locationId: string, patch: { name?: string; is_active?: boolean }, signal?: AbortSignal): Promise<AdminLocation> =>
+    request(`/api/admin/locations/${locationId}`, value => parseAdminLocation(value, locationId), signal, patch, 'PATCH'),
+  adminDeleteLocation: (locationId: string, signal?: AbortSignal): Promise<AdminLocation> =>
+    request(`/api/admin/locations/${locationId}`, value => parseAdminLocation(value, locationId), signal, {}, 'DELETE'),
   me: (signal?: AbortSignal) => request('/api/auth/me', parseAuth, signal),
   login: (username: string, password: string, signal?: AbortSignal) => request('/api/auth/login', parseAuth, signal, { username, password }),
   logout: (signal?: AbortSignal) => request('/api/auth/logout', () => undefined, signal, {}),

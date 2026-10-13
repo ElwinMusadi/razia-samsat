@@ -6,7 +6,7 @@ import { useAuth } from './auth';
 import { api, ApiError, errorText, formatWita, isAbort, normalizeLane, type Location, type RaidSession } from './lib/api';
 import { Scanner } from './scanner';
 import { HistoryDetailRoute, HistoryListRoute } from './history';
-import { AdminUsersRoute, AdminUserRoute } from './admin';
+import { AdminUsersRoute, AdminUserRoute, AdminLocationsRoute } from './admin';
 import { PwaControls, PwaProvider } from './pwa';
 import { ChevronDown, Circle, Download, History, LogOut, MapPin, ScanLine, Shield, UserRound } from 'lucide-react';
 import { Input, PasswordInput } from './components/ui/input';
@@ -119,7 +119,8 @@ function Shell({ children }: { children: ReactNode }) {
         <NavLink className="nav-link" to="/razia/scanner" end><ScanLine aria-hidden="true" />Scanner</NavLink>
         <NavLink className="nav-link" to="/razia/setup" end><MapPin aria-hidden="true" />Sesi</NavLink>
         <NavLink className="nav-link" to="/history"><History aria-hidden="true" />Riwayat</NavLink>
-        {auth?.user.role === 'ADMIN' && <NavLink className="nav-link" to="/admin/users"><Shield aria-hidden="true" />Admin</NavLink>}
+        {auth?.user.role === 'ADMIN' && <NavLink className="nav-link" to="/admin/users"><Shield aria-hidden="true" />Admin</NavLink>
+         {auth?.user.role === 'ADMIN' && <NavLink className="nav-link" to="/admin/locations"><MapPin aria-hidden="true" />Lokasi</NavLink>}}
       </div>
     </nav>
   </div>;
@@ -216,7 +217,7 @@ export function App() {
     const path = location.pathname;
     document.title = path === '/login' ? 'Masuk — Razia SAMSAT' : path === '/razia/scanner' ? 'Scanner — Razia SAMSAT'
       : path === '/history' ? 'Riwayat — Razia SAMSAT' : path.startsWith('/history/') ? 'Detail sesi — Razia SAMSAT'
-      : path === '/admin/users' ? 'Kelola pengguna — Razia SAMSAT' : path.startsWith('/admin/users/') ? 'Detail pengguna — Razia SAMSAT' : 'Sesi razia — Razia SAMSAT';
+      : path === '/admin/users' ? 'Kelola pengguna — Razia SAMSAT' : path.startsWith('/admin/users/') ? 'Detail pengguna — Razia SAMSAT' : path === '/admin/locations' ? 'Kelola lokasi — Razia SAMSAT' : 'Sesi razia — Razia SAMSAT';
   }, [location.pathname]);
   return <PwaProvider>{import.meta.env.VITE_APP_MODE === 'development' && <aside className="development-notice" aria-label="Mode pengembangan">Mode pengembangan · Data kendaraan simulasi, bukan data produksi.</aside>}<Routes>
     <Route path="/login" element={<Login />} />
@@ -226,6 +227,7 @@ export function App() {
     <Route path="/history/:id" element={<Protected><Shell><HistoryDetailRoute /></Shell></Protected>} />
     <Route path="/admin/users" element={<Protected><Shell><AdminUsersRoute /></Shell></Protected>} />
     <Route path="/admin/users/:id" element={<Protected><Shell><AdminUserRoute /></Shell></Protected>} />
+     <Route path="/admin/locations" element={<Protected><Shell><AdminLocationsRoute /></Shell></Protected>} />
     <Route path="*" element={<Protected><Home /></Protected>} />
   </Routes></PwaProvider>;
 }

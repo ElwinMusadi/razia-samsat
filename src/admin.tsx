@@ -3,8 +3,9 @@ import { Link, useParams } from 'react-router';
 import { useAuth } from './auth';
 import { Button } from './components/ui/button';
 import { useLatestRequest } from './history';
-import { api, ApiError, formatWita, isAcceptablePassword, isAbort, normalizeUsername, type AdminUser, type AdminSession } from './lib/api';
+import { api, ApiError, formatWita, isAcceptablePassword, isAbort, normalizeUsername, type AdminUser, type AdminSession, type AdminLocation } from './lib/api';
 import { PasswordInput } from './components/ui/input';
+import { StatusChip } from './components/ui/status-chip';
 import { PageHeader } from './components/ui/layout';
 
 const CONTROL = 'min-w-12 whitespace-normal break-words';
@@ -39,9 +40,9 @@ function UserFacts({ user }: { user: AdminUser }) {
   </dl>;
 }
 /** Scope safety is usability only. The backend rechecks the exact actor on every operation. */
-function AdminGate({ children }: { children: ReactNode }) {
+function AdminGate({ children, subject = 'pengguna' }: { children: ReactNode; subject?: string }) {
   const { auth } = useAuth();
-  if (auth?.user.role !== 'ADMIN') return <section className="flex flex-col gap-3"><Title>Akses ditolak (403)</Title><p>Pengelolaan pengguna hanya tersedia untuk admin.</p></section>;
+  if (auth?.user.role !== 'ADMIN') return <section className="flex flex-col gap-3"><Title>Akses ditolak (403)</Title><p>Pengelolaan {subject} hanya tersedia untuk admin.</p></section>;
   return children;
 }
 function useIdentity() {
@@ -306,6 +307,130 @@ function AdminDetail({ id }: { id: string }) {
           <div className="flex flex-wrap gap-2"><Button type="submit" variant={confirmation === 'activate' ? 'default' : 'destructive'} className={CONTROL} disabled={disabled}>{busy ? 'Memproses…' : 'Ya, lanjutkan'}</Button><Button type="button" variant="outline" className={CONTROL} disabled={busy} onClick={() => choose(null)}>Batal</Button></div>
         </form>
       </section>}
+    </>}
+  </section>;
+}
+
+export function AdminLocationsRoute() {
+  const identity = useIdentity();
+  return <AdminGate subject="lokasi razia"><AdminLocations key={identity} /></AdminGate>;
+}
+function AdminLocations() {
+  const { busy } = useAuth();
+  const { start, cancel } = useLatestRequest();
+  const { pending, perform } = useAdminOperation();
+  const nameInput = useRef<HTMLInputElement>(null);
+  const editInput = useRef<HTMLInputElement>(null);
+  const mounted = useRef(true);
+  const [locations, setLocations] = useState<AdminLocation[]>([]);
+  const [phase, setPhase] = useState<'loading' | 'ready'>('loading');
+  const [failure, setFailure] = useState<ApiError | null>(null);
+  const [formError, setFormError] = useState<ApiError | null>(null);
+  const [needsSync, setNeedsSync] = useState(false);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editError, setEditError] = useState<ApiError | null>(null);
+  const [confirmingId, setConfirmingId] = useState<string | null>(null);
+  const fetchHead = useCallback((reconcile = false) => {
+    start(signal => api.adminLocations(signal), rows => {
+      setLocations(rows); setPhase('ready'); setFailure(null);
+      if (reconcile) setNeedsSync(false);
+    }, error => { const rejected = asError(error); if (terminal(rejected)) setLocations([]); setFailure(rejected); setPhase('ready'); });
+  }, [start]);
+  useEffect(() => { fetchHead(); return cancel; }, [fetchHead, cancel]);
+  useLayoutEffect(() => { mounted.current = true; return () => { mounted.current = false; }; }, []);
+  useLayoutEffect(() => { if (busy) cancel(); }, [busy, cancel]);
+  function reload(reconcile = false) { if (busy) return; setPhase('loading'); setFailure(null); fetchHead(reconcile); }
+  const validName = (value: string) => { const name = value.trim(); return name.length >= 1 && name.length <= 200 ? name : null; };
+  async function mutate(operation: (signal: AbortSignal) => Promise<AdminLocation>, accept: (row: AdminLocation) => void, onError: (error: ApiError) => void) {
+    try { await perform(operation, accept); }
+    catch (error) {
+      if (!mounted.current || isAbort(error)) return;
+      const rejected = asError(error); onError(rejected);
+      if (ambiguous(rejected)) setNeedsSync(true);
+      if (terminal(rejected)) { setLocations([]); setFailure(rejected); }
+    }
+  }
+  async function create(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (pending.current || busy || phase !== 'ready' || needsSync || terminal(failure)) return;
+    const name = validName(nameInput.current?.value ?? '');
+    if (name === null) { setFormError(new ApiError('Nama lokasi wajib diisi, maksimal 200 karakter.', 400, 'INVALID_INPUT')); return; }
+    setFormError(null);
+    await mutate(signal => api.adminCreateLocation(name, signal), row => {
+      setLocations(previous => [...previous.filter(item => item.id !== row.id), row].sort((a, b) => a.name.localeCompare(b.name, 'id')));
+      if (nameInput.current) nameInput.current.value = '';
+    }, setFormError);
+  }
+  async function rename(event: FormEvent<HTMLFormElement>, row: AdminLocation) {
+    event.preventDefault();
+    if (pending.current || busy || needsSync || terminal(failure)) return;
+    const name = validName(editInput.current?.value ?? '');
+    if (name === null) { setEditError(new ApiError('Nama lokasi wajib diisi, maksimal 200 karakter.', 400, 'INVALID_INPUT')); return; }
+    setEditError(null);
+    await mutate(signal => api.adminUpdateLocation(row.id, { name }, signal), updated => {
+      setLocations(previous => previous.map(item => item.id === updated.id ? updated : item).sort((a, b) => a.name.localeCompare(b.name, 'id')));
+      setEditingId(null);
+    }, setEditError);
+  }
+  async function setActive(row: AdminLocation, is_active: boolean) {
+    if (pending.current || busy || needsSync || terminal(failure)) return;
+    setConfirmingId(null);
+    await mutate(signal => api.adminUpdateLocation(row.id, { is_active }, signal), updated => {
+      setLocations(previous => previous.map(item => item.id === updated.id ? updated : item));
+    }, setFormError);
+  }
+  async function remove(row: AdminLocation) {
+    if (pending.current || busy || needsSync || terminal(failure)) return;
+    setConfirmingId(null);
+    await mutate(signal => api.adminDeleteLocation(row.id, signal), updated => {
+      setLocations(previous => previous.map(item => item.id === updated.id ? updated : item));
+    }, setFormError);
+  }
+  if (busy && !pending.current) return <p role="status">Memproses sesi…</p>;
+  return <section className="flex min-w-0 flex-col gap-4" aria-busy={busy || phase !== 'ready'}>
+    <Title>Kelola lokasi razia</Title>
+    <p>Tambah, ubah, dan nonaktifkan lokasi razia. Lokasi yang dinonaktifkan tidak muncul di pilihan sesi baru, tetapi riwayat sesi tetap utuh.</p>
+    {phase === 'loading' && <p role="status">Memuat lokasi…</p>}
+    {failure && <Failure error={failure} retry={() => reload()} busy={busy} />}
+    {!terminal(failure) && <>
+      {needsSync && <p role="alert" className="error-message">Perubahan terakhir belum pasti tersimpan. Muat ulang sebelum melanjutkan.</p>}
+      <form onSubmit={event => { void create(event); }} className="panel flex min-w-0 flex-col gap-3" noValidate>
+        <div className="field"><label htmlFor="location-name">Nama lokasi baru</label>
+          <input id="location-name" ref={nameInput} name="name" type="text" autoComplete="off" maxLength={200} disabled={busy || phase !== 'ready'} aria-invalid={!!formError} placeholder="cth. Jln. El Tari - DPRD Provinsi NTT" /></div>
+        {formError && <p role="alert" className="error-message">{formError.message}</p>}
+        <div><Button type="submit" className={CONTROL} disabled={busy || phase !== 'ready'}>Tambah lokasi</Button></div>
+      </form>
+      {phase === 'ready' && !failure && locations.length === 0 && <p role="status">Belum ada lokasi.</p>}
+      {locations.length > 0 && <ul aria-label="Daftar lokasi razia" className="flex min-w-0 flex-col gap-3">
+        {locations.map(row => <li key={row.id} className="panel flex min-w-0 flex-col gap-2">
+          <div className="flex min-w-0 flex-wrap items-center gap-2">
+            <span className="min-w-0 flex-1 break-words text-lg font-semibold">{row.name}</span>
+            <StatusChip tone={row.is_active ? 'success' : 'neutral'}>{row.is_active ? 'Aktif' : 'Nonaktif'}</StatusChip>
+          </div>
+          <p className="text-sm">Diperbarui {formatWita(row.updated_at)}</p>
+          {editingId === row.id ? <form onSubmit={event => { void rename(event, row); }} className="flex min-w-0 flex-col gap-2" noValidate>
+            <div className="field"><label htmlFor={`edit-${row.id}`}>Nama lokasi</label>
+              <input id={`edit-${row.id}`} ref={editInput} name="name" type="text" autoComplete="off" maxLength={200} defaultValue={row.name} disabled={busy} aria-invalid={!!editError} /></div>
+            {editError && <p role="alert" className="error-message">{editError.message}</p>}
+            <div className="flex flex-wrap gap-2">
+              <Button type="submit" className={CONTROL} disabled={busy}>Simpan</Button>
+              <Button type="button" variant="outline" className={CONTROL} disabled={busy} onClick={() => { setEditingId(null); setEditError(null); }}>Batal</Button>
+            </div>
+          </form> : confirmingId === row.id ? <div className="flex min-w-0 flex-col gap-2">
+            <p className="font-semibold">Nonaktifkan lokasi “{row.name}”?</p>
+            <p className="text-sm">Lokasi tidak muncul di pilihan sesi baru. Riwayat sesi tetap utuh.</p>
+            <div className="flex flex-wrap gap-2">
+              <Button type="button" variant="destructive" className={CONTROL} disabled={busy} onClick={() => { void remove(row); }}>Ya, nonaktifkan</Button>
+              <Button type="button" variant="outline" className={CONTROL} disabled={busy} onClick={() => setConfirmingId(null)}>Batal</Button>
+            </div>
+          </div> : <div className="flex flex-wrap gap-2">
+            <Button type="button" variant="outline" className={CONTROL} disabled={busy} onClick={() => { setEditingId(row.id); setEditError(null); setConfirmingId(null); }}>Ubah nama</Button>
+            {row.is_active
+              ? <Button type="button" variant="outline" className={CONTROL} disabled={busy} onClick={() => { setConfirmingId(row.id); setEditingId(null); }}>Nonaktifkan</Button>
+              : <Button type="button" variant="outline" className={CONTROL} disabled={busy} onClick={() => { void setActive(row, true); }}>Aktifkan</Button>}
+          </div>}
+        </li>)}
+      </ul>}
     </>}
   </section>;
 }
