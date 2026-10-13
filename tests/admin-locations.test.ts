@@ -80,7 +80,7 @@ describe('admin locations CRUD', () => {
   const listed = await (await call('GET', BASE, undefined, tokens.admin)).json() as { locations: AdminLocation[] };
   expect(listed.locations.map(l => l.name)).toContain('Jln. El Tari');
  });
- it.each([[null], [''], ['   '], ['x'.repeat(201)], [123], [{}], []])('rejects invalid create name %j', async name => {
+ it.each([[null], [''], ['   '], ['x'.repeat(201)], [123], [{}]])('rejects invalid create name %j', async (name: unknown) => {
   await error(await call('POST', BASE, { name }, tokens.admin), 400, 'INVALID_INPUT');
  });
  it.each([{}, { name: 'A', extra: 1 }, { name: 'A', is_active: true }])('rejects create body with wrong keys %j', async body => {
