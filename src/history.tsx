@@ -128,7 +128,7 @@ function HistoryList() {
     }, error => { setFailure({ failure: classify(error), more: true }); setPhase('ready'); });
   }
   const blocking = failure && !failure.more;
-  return <section className="flex flex-col gap-4" aria-busy={phase !== 'ready'}>
+  return <section className="reading-layout flex flex-col gap-4" aria-busy={phase !== 'ready'}>
     <Title>Riwayat</Title>
     <p>Daftar sesi razia{admin ? ' seluruh petugas' : ' milik Anda'}, terbaru di atas.</p>
     {phase === 'loading' && <p role="status" className="flex items-center gap-2"><Spinner />Memuat riwayat sesi…</p>}
@@ -164,13 +164,13 @@ function RaidHeader({ raid, admin }: { raid: HistoryRaid; admin: boolean }) {
 function Metric({ label, value, help }: { label: string; value: number; help?: string }) {
   return <div className="metric">
     <dt className="text-sm">{label}{help && <span className="block text-xs">{help}</span>}</dt>
-    <dd className="text-2xl font-extrabold" data-metric={label}>{value}</dd>
+    <dd data-metric={label}>{value}</dd>
   </div>;
 }
 function Recap({ summary }: { summary: HistorySummary }) {
   return <section aria-labelledby="recap-title" className="flex flex-col gap-2">
     <h2 id="recap-title" className="text-xl font-semibold">Rekap sesi</h2>
-    <dl className="grid grid-cols-2 gap-2">
+    <dl className="metrics-grid grid grid-cols-2 gap-2">
       <Metric label="Total Scan" value={summary.total_checks} help="NOPOL unik" />
       <Metric label="Ditemukan" value={summary.found} />
       <Metric label="Tidak ditemukan" value={summary.not_found} />
@@ -226,7 +226,7 @@ function HistoryDetail({ id }: { id: string }) {
     }, error => { setFailure({ failure: classify(error), more: true }); setPhase('ready'); });
   }
   const terminal = failure && failure.failure.kind !== 'error';
-  return <section className="flex flex-col gap-4" aria-busy={phase !== 'ready'}>
+  return <section className="reading-layout flex flex-col gap-4" aria-busy={phase !== 'ready'}>
     <Link to="/history" className="inline-flex min-h-11 items-center self-start font-medium underline underline-offset-4">← Kembali ke riwayat</Link>
     <Title>Detail sesi razia</Title>
     {phase === 'loading' && <p role="status" className="flex items-center gap-2"><Spinner />Memuat detail sesi…</p>}
@@ -302,7 +302,7 @@ export function RaidHistoryPanel({ raidId, refreshRef }: { raidId: string; refre
         : <ol aria-label="Pengecekan terbaru" className="flex flex-col gap-2">
           {data.checks.map(check => {
             const vehicle = [check.vehicle_type, check.vehicle_color].filter(Boolean).join(' • ');
-            return <li key={check.id} data-check-id={check.id} className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-input bg-white p-2 text-black">
+            return <li key={check.id} data-check-id={check.id} className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-input bg-card p-2 text-card-foreground">
               <span className="break-all font-extrabold tracking-wider">{check.nopol}</span>
               {check.outcome === 'FOUND' ? <span className="flex items-center gap-1 text-sm">Pajak <StatusBadge status={check.tax_status} /></span> : <span className="text-sm font-semibold">Tidak ditemukan</span>}
               {vehicle ? <span className="text-sm text-secondary-foreground">{vehicle}</span> : null}

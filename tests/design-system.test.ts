@@ -16,11 +16,11 @@ afterEach(() => { cleanup(); vi.restoreAllMocks(); });
 function rgb(hex: string) { return hex.replace('#', '').match(/../g)!.map(value => parseInt(value, 16) / 255); }
 function luminance(color: number[]) { return color.map(value => value <= 0.04045 ? value / 12.92 : ((value + 0.055) / 1.055) ** 2.4).reduce((sum, value, index) => sum + value * [0.2126, 0.7152, 0.0722][index]!, 0); }
 function contrast(a: number[], b: number[]) { const l = [luminance(a), luminance(b)].sort((x, y) => y - x); return (l[0]! + 0.05) / (l[1]! + 0.05); }
-const tokens = { canvas: rgb('#F7F6F2'), ink: rgb('#0F1319'), white: rgb('#FFFFFF'), blue: rgb('#2B63F6'), success: rgb('#16803C'), danger: rgb('#C62828'), neutral: rgb('#6B7280'), warning: rgb('#A16207') };
+const tokens = { canvas: rgb('#F3F7F9'), ink: rgb('#0F1319'), white: rgb('#FFFFFF'), blue: rgb('#2B63F6'), link: rgb('#1E4FD6'), controlBorder: rgb('#64748B'), success: rgb('#16803C'), danger: rgb('#C62828'), neutral: rgb('#6B7280'), warning: rgb('#A16207') };
 
 describe('approved design foundation', () => {
   it('keeps approved colors centralized and operational fonts self-hosted', () => {
-    for (const value of ['#F7F6F2', '#0F1319', '#8A8F96', '#E7E4DC', '#2B63F6', '#16803C', '#C62828', '#6B7280', '#A16207']) expect(css).toContain(value);
+    for (const value of ['#F3F7F9', '#0F1319', '#8A8F96', '#E7E4DC', '#2B63F6', '#1E4FD6', '#64748B', '#16803C', '#C62828', '#6B7280', '#A16207']) expect(css).toContain(value);
     expect(css).toContain('@fontsource/inter/latin-400.css'); expect(css).toContain('@fontsource/inter/latin-800.css'); expect(css).toContain('@fontsource/dm-serif-display/latin-400.css');
     expect(css).not.toMatch(/https?:\/\/|--radius-sm: var\(--radius-sm\)/);
   });
@@ -100,6 +100,64 @@ describe('approved design foundation', () => {
     render(createElement(Surface, null, createElement(EmptyState, { title: 'Belum ada data.' }, 'Buka sesi.'), createElement(ErrorState, { title: 'Pemeriksaan gagal.', warning: true }, 'Coba lagi.')));
     expect(screen.getByRole('status').textContent).toContain('Buka sesi.'); expect(screen.getByRole('alert').textContent).toContain('Coba lagi.');
     expect(screen.getByRole('alert').className).toContain('feedback-warning');
+  });
+  it('implements solid-first chrome with progressive blur and explicit accessibility overrides', () => {
+    expect(css).toMatch(/--chrome-surface:\s*var\(--card\);/);
+    expect(css).toMatch(/--chrome-filter:\s*none;/);
+    expect(css).toMatch(/--chrome-border:\s*#D6DEE3;/);
+    expect(css).toContain('@supports ((backdrop-filter: blur(12px)) or (-webkit-backdrop-filter: blur(12px)))');
+    expect(css).toContain('--chrome-surface: rgb(255 255 255 / 0.9); --chrome-filter: blur(12px);');
+    expect(css).toMatch(/@media \(prefers-reduced-transparency: reduce\) \{\s*:root \{\s*--chrome-surface: var\(--card\);\s*--chrome-filter: none;/);
+    expect(css).toMatch(/@media \(forced-colors: active\) \{[^}]*--chrome-surface: Canvas;[^}]*--chrome-filter: none;/);
+  });
+  it('isolates header chrome pseudo-layer and disables it in scanner session controls while keeping account panel opaque', () => {
+    expect(css).toMatch(/\.app-header::before \{[^}]*content: '';[^}]*background: var\(--chrome-surface\);[^}]*backdrop-filter: var\(--chrome-filter\);/);
+    expect(css).toContain('.scanner-session-controls .app-header { background: var(--card); border: 1px solid var(--chrome-border); }');
+    expect(css).toContain('.scanner-session-controls .app-header::before { display: none; }');
+    const accountPanelMatch = css.match(/(?:^|\n)\s*\.account-panel \{([^}]+)\}/);
+    expect(accountPanelMatch).not.toBeNull();
+    expect(accountPanelMatch![1]).toContain('bg-card');
+    expect(accountPanelMatch![1]).not.toMatch(/backdrop-filter/);
+  });
+  it('keeps data cards opaque white without filters and bounds blur variables to 12px', () => {
+    // Note: JSDOM cannot evaluate rendered blur or visual composition; actual visual blur rendering is MANUAL VISUAL PENDING.
+    for (const className of ['panel', 'surface', 'vehicle-result', 'metric', 'history-row', 'empty-state']) {
+      expect(css).toMatch(new RegExp(`\\.${className}[^{]*\\{[^}]*bg-card`));
+    }
+    const backdropRules = css.match(/[^{}]+(?=\{[^}]*backdrop-filter)/g) ?? [];
+    for (const rule of backdropRules) {
+      expect(rule).toMatch(/\.app-header::before|\.bottom-navigation-pill|\.scanner-search|@supports/);
+      expect(rule).not.toMatch(/\.vehicle-result|\.metric|\.history-row|\.panel|\.surface|\.empty-state/);
+    }
+    const blurs = css.match(/blur\([^)]+\)/g) ?? [];
+    expect(blurs.length).toBeGreaterThan(0);
+    for (const blur of blurs) {
+      expect(blur).toBe('blur(12px)');
+    }
+  });
+  it('satisfies 320px compact navigation geometry arithmetic across all 5 destinations in source sizing', () => {
+    const linkWidth = 48;
+    const fabWidth = 56;
+    const gap = 2;
+    const paddingInline = 8 * 2;
+    const borders = 1 * 2;
+    const totalPillWidth = (4 * linkWidth) + fabWidth + (4 * gap) + paddingInline + borders;
+    expect(totalPillWidth).toBe(274);
+    const availableWidthAt320 = 320 - (16 * 2);
+    expect(availableWidthAt320).toBe(288);
+    expect(totalPillWidth).toBeLessThanOrEqual(availableWidthAt320);
+    expect(css).toMatch(/@media \(max-width: 359px\) \{[^}]*\.bottom-navigation-pill \{[^}]*gap: calc\(var\(--space-1\) \/ 2\);/);
+    expect(css).toMatch(/\.nav-link \{[^}]*flex: 0 0 var\(--space-12\);/);
+    expect(css).toMatch(/\.nav-fab \{[^}]*margin-inline: 0;/);
+  });
+  it('enforces strong link contrast over 90% composited glass and verifies non-text control border contrast', () => {
+    const compositedGlass = tokens.white.map(value => value * 0.9);
+    expect(contrast(tokens.blue, compositedGlass)).toBeLessThan(4.5);
+    expect(contrast(tokens.link, compositedGlass)).toBeGreaterThanOrEqual(4.5);
+    expect(contrast(tokens.link, tokens.white)).toBeGreaterThanOrEqual(4.5);
+    expect(css).toMatch(/\.nav-link\[aria-current='page'\] \{[^}]*color: var\(--link\);/);
+    expect(contrast(tokens.controlBorder, tokens.white)).toBeGreaterThanOrEqual(3.0);
+    expect(contrast(tokens.controlBorder, tokens.canvas)).toBeGreaterThanOrEqual(3.0);
   });
 });
 

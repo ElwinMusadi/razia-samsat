@@ -25,7 +25,7 @@ it('production frontend graph excludes server modules, shared backend logic and 
   expect(projectModules.some(id => id.endsWith('/src/main.tsx'))).toBe(true);
   expect(projectModules.some(id => id.endsWith('/src/pwa.tsx'))).toBe(true);
   expect(html).toContain('rel="manifest" href="/manifest.webmanifest"');
-  expect(html).toContain('name="theme-color" content="#F7F6F2"');
+  expect(html).toContain('name="theme-color" content="#F3F7F9"');
   expect(clientScript).toContain('/sw.js');
   const pwaSource = await readFile(new URL('../src/pwa.tsx', import.meta.url), 'utf8');
   expect(pwaSource).not.toMatch(/skipWaiting|clients\.claim|location\.reload|postMessage/);

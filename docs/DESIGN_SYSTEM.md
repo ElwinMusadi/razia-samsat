@@ -2,11 +2,38 @@
 
 # Design System — Aplikasi Razia Kendaraan SAMSAT Kota Kupang
 
-**Status:** APPROVED — Phase 8 Implementation Contract  
+**Status:** APPROVED — Phase 8 Interaction Contract; Glassmorphism presentation extension implemented locally (13 October 2026)
 **Role:** UI/UX Single Source of Truth  
 **Product:** Aplikasi Razia Kendaraan SAMSAT Kota Kupang  
 **Primary platform:** Android smartphone PWA  
 **Implementation foundation:** React + TypeScript + Tailwind CSS + shadcn/ui
+
+---
+
+## Glassmorphism presentation extension — 13 October 2026
+
+The implementation scope approved in `GLASSMORPHISM_REDESIGN_PLAN.md` supersedes
+older visual-only values below where they conflict. Interaction, domain, privacy,
+role, keyboard/focus, and API constraints remain unchanged. This is a local
+implementation checkpoint, not approval to commit, push, or deploy.
+
+- Canvas/theme metadata: `#F3F7F9`; primary data and form surfaces remain opaque white.
+- Glass is restricted to chrome: header decorative layer, bottom navigation, and
+  scanner search band. It is solid first, with 90% white and 12px blur only when
+  supported. Scanner footer header and account panel remain opaque; no nested blur.
+- Operational link/active/focus color: `#1E4FD6`; `#2B63F6` remains brand/action fill.
+  Control border: `#64748B`; decorative chrome border: `#D6DEE3`.
+- Inter remains the operational font; DM Serif is restrained to brand/empty states.
+  Data uses tabular numbers; micro-interactions are 150-180ms with reduced-motion.
+- Native details, Enter-only NOPOL lookup, role navigation, password cleanup,
+  reconciliation, source contracts, and privacy cache rules remain authoritative.
+- HTML/manifest/offline theme assets and public cache version `v3` change together.
+  Service worker cache policy, precache allowlist, and activation behavior do not change.
+- Unsupported blur, reduced-transparency, and forced-colors use solid/system-color
+  fallbacks. The optional media feature is not required for base contrast.
+
+Rendered behavior, physical-device performance, and full accessibility acceptance
+must be verified separately. CSS-source tests are not proof of visual compliance.
 
 ---
 

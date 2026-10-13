@@ -158,7 +158,7 @@ function AdminUsers() {
     }
   }
   if (busy && !pending.current) return <p role="status">Memproses sesi…</p>;
-  return <section className="flex min-w-0 flex-col gap-4" aria-busy={busy || phase !== 'ready'}>
+  return <section className="reading-layout flex min-w-0 flex-col gap-4" aria-busy={busy || phase !== 'ready'}>
     <Title>Kelola pengguna</Title>
     <p>Kelola akses akun dan sesi perangkat. Peran ditentukan saat akun dibuat.</p>
     {phase === 'loading' && <p role="status">Memuat pengguna…</p>}
@@ -181,7 +181,7 @@ function AdminUsers() {
         <form onSubmit={event => { void create(event); }} className="flex min-w-0 flex-col gap-4" noValidate>
           <label className="field">Nama pengguna baru<input ref={username} name="username" autoComplete="off" disabled={busy || needsSync} aria-describedby="username-help" /></label>
           <p id="username-help" className="text-sm">1–100 karakter: huruf ASCII, angka, titik, garis bawah, atau tanda hubung. Spasi tepi dihapus dan huruf menjadi kecil; layanan menentukan ketersediaan.</p>
-          <label className="field">Peran pengguna baru<select ref={role} name="role" defaultValue="OFFICER" disabled={busy || needsSync}><option value="OFFICER">Petugas</option><option value="ADMIN">Admin</option></select></label>
+          <label className="field">Peran pengguna baru<span className="select-control"><select ref={role} name="role" defaultValue="OFFICER" disabled={busy || needsSync}><option value="OFFICER">Petugas</option><option value="ADMIN">Admin</option></select></span></label>
           <PasswordField inputRef={password} label="Kata sandi awal" disabled={busy || needsSync} invalid={!!formError} />
           <Button type="submit" className={CONTROL} disabled={busy || needsSync}>{busy ? 'Menyimpan…' : 'Buat pengguna'}</Button>
         </form>
@@ -265,7 +265,7 @@ function AdminDetail({ id }: { id: string }) {
   }
   const disabled = busy || needsSync || phase !== 'ready';
   if (busy && !pending.current) return <p role="status">Memproses sesi…</p>;
-  return <section className="flex min-w-0 flex-col gap-4" aria-busy={busy || phase !== 'ready'}>
+  return <section className="reading-layout flex min-w-0 flex-col gap-4" aria-busy={busy || phase !== 'ready'}>
     <Link to="/admin/users" className="inline-flex min-h-11 min-w-11 items-center self-start underline">Kembali ke daftar pengguna</Link>
     <Title>Detail pengguna</Title>
     {phase === 'loading' && <p role="status">Memuat detail pengguna…</p>}
@@ -387,7 +387,7 @@ function AdminLocations() {
     }, setFormError);
   }
   if (busy && !pending.current) return <p role="status">Memproses sesi…</p>;
-  return <section className="flex min-w-0 flex-col gap-4" aria-busy={busy || phase !== 'ready'}>
+  return <section className="reading-layout flex min-w-0 flex-col gap-4" aria-busy={busy || phase !== 'ready'}>
     <Title>Kelola lokasi razia</Title>
     <p>Tambah, ubah, dan nonaktifkan lokasi razia. Lokasi yang dinonaktifkan tidak muncul di pilihan sesi baru, tetapi riwayat sesi tetap utuh.</p>
     {phase === 'loading' && <p role="status">Memuat lokasi…</p>}

@@ -57,7 +57,7 @@ function Login() {
     {notice && <p role="status">{notice}</p>}
     {loading && <p role="status">Memeriksa sesi…</p>}
     {authError && <><ErrorMessage>{authError}</ErrorMessage><Button variant="outline" onClick={retry}>Coba lagi</Button></>}
-    <form onSubmit={submit} className="flex flex-col gap-4" aria-busy={busy}>
+    <form onSubmit={submit} className="panel flex flex-col gap-4" aria-busy={busy}>
       <label className="field" data-invalid={!!error} htmlFor="login-username">Nama pengguna<Input id="login-username" ref={username} name="username" autoComplete="username" required disabled={busy} aria-invalid={!!error} aria-describedby={error ? 'login-error' : undefined} /></label>
       <div className="field" data-invalid={!!error}><label htmlFor="login-password">Kata sandi</label><PasswordInput id="login-password" inputRef={password} name="password" autoComplete="current-password" required disabled={busy} aria-invalid={!!error} aria-describedby={error ? 'login-error' : undefined} /></div>
       {error && <ErrorMessage id="login-error">{error}</ErrorMessage>}
@@ -200,11 +200,11 @@ function RaidSetup() {
       {locationsLoading && <p role="status">Memuat lokasi…</p>}
       {locationsError && <><ErrorMessage id="locations-error">{locationsError}</ErrorMessage><Button variant="outline" disabled={busy || locationsLoading} onClick={() => { setLocationsLoading(true); setLocationsError(''); setAttempt(value => value + 1); }}>Muat lokasi lagi</Button></>}
       {!locationsLoading && !locationsError && locations?.length === 0 && <p role="status">Belum ada lokasi aktif. Hubungi admin untuk pengaturan lokasi.</p>}
-      <form onSubmit={submit} className="flex flex-col gap-4" aria-busy={busy}>
-        <label className="field" data-invalid={!!error}>Lokasi<select name="location_id" value={locationId} onChange={event => setLocationId(event.target.value)} required disabled={busy || locationsLoading || !!locationsError || !locations?.length || needsSync} aria-invalid={!!error} aria-describedby={locationsError ? 'locations-error' : error ? 'raid-error' : undefined}>
+      <form onSubmit={submit} className="panel flex flex-col gap-4" aria-busy={busy}>
+        <label className="field" data-invalid={!!error}>Lokasi<span className="select-control"><select name="location_id" value={locationId} onChange={event => setLocationId(event.target.value)} required disabled={busy || locationsLoading || !!locationsError || !locations?.length || needsSync} aria-invalid={!!error} aria-describedby={locationsError ? 'locations-error' : error ? 'raid-error' : undefined}>
           <option value="">Pilih lokasi</option>
           {locations?.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}
-        </select></label>
+        </select></span></label>
         <label className="field" data-invalid={!!error}>Jalur<input name="lane" value={lane} onChange={event => setLane(event.target.value)} required disabled={busy || needsSync} aria-invalid={!!error} aria-describedby={error ? 'raid-error lane-help' : 'lane-help'} /></label>
         <p id="lane-help" className="text-sm">Teks bebas, 1–100 karakter. Contoh: arah menuju pusat kota.</p>
         <Button type="submit" disabled={busy || needsSync || locationsLoading || !!locationsError || !locations?.length}>{action === 'start' ? 'Memulai sesi…' : 'Mulai sesi razia'}</Button>
