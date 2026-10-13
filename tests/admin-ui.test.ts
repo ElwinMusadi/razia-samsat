@@ -70,9 +70,15 @@ describe('admin list, guards and navigation', () => {
     routes(); mount(); await screen.findByRole('list', { name: 'Daftar pengguna' });
     const link = screen.getByRole('link', { name: 'Admin' }); expect(link.closest('header')).toBeNull();
     expect(link.classList.contains('nav-link')).toBe(true); expect(link.getAttribute('aria-current')).toBe('page');
-    const nav = screen.getByRole('navigation'); expect([...nav.firstElementChild!.children].map(node => node.textContent)).toEqual(['Scanner', 'Sesi', 'Riwayat', 'Admin', 'Lokasi']);
-    for (const control of [...nav.firstElementChild!.children]) {
-      expect(control.classList.contains('nav-link')).toBe(true);
+    const nav = screen.getByRole('navigation');
+    const pill = nav.firstElementChild!;
+    expect([...pill.children].map(node => node.textContent)).toEqual(['Sesi', 'Riwayat', '', 'Admin', 'Lokasi']);
+    const fab = within(nav).getByRole('link', { name: 'Scanner' });
+    expect(fab.classList.contains('nav-fab')).toBe(true);
+    expect(fab.getAttribute('href')).toBe('/razia/scanner');
+    for (const control of [...pill.children]) {
+      const isFab = control === fab;
+      expect(control.classList.contains(isFab ? 'nav-fab' : 'nav-link')).toBe(true);
       expect(control.getAttribute('aria-current')).toBe(control.textContent === 'Admin' ? 'page' : null);
       expect(control.classList.contains('active')).toBe(control.textContent === 'Admin');
     }

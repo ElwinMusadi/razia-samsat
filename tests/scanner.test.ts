@@ -150,23 +150,25 @@ describe('scanner shell and navigation', () => {
     const input = await ready(auth(active ? raid : null));
     const nav = screen.getByRole('navigation', { name: 'Navigasi utama' });
     expect(screen.getAllByRole('navigation')).toHaveLength(1);
-    for (const token of ['fixed', 'inset-x-0', 'bottom-0', 'z-20', 'bg-background', 'bottom-navigation']) expect(nav.className.split(' ')).toContain(token);
+    for (const token of ['fixed', 'inset-x-0', 'bottom-0', 'z-20', 'bottom-navigation']) expect(nav.className.split(' ')).toContain(token);
     expect(nav.closest('header')).toBeNull();
-    const row = nav.firstElementChild!;
-    for (const token of ['flex', 'w-full', 'max-w-lg', 'gap-2', 'px-4']) expect(row.className.split(' ')).toContain(token);
-    expect(row.className).not.toContain('flex-wrap');
-    expect(row.children).toHaveLength(3);
-    expect([...row.children].map(control => control.textContent)).toEqual(['Scanner', 'Sesi', 'Riwayat']);
+    const pill = nav.firstElementChild!;
+    expect(pill.className.split(' ')).toContain('bottom-navigation-pill');
+    expect(pill.children).toHaveLength(3);
+    expect([...pill.children].map(control => control.textContent)).toEqual(['Sesi', '', 'Riwayat']);
+    const fab = within(nav).getByRole('link', { name: 'Scanner' });
+    expect(fab.getAttribute('href')).toBe('/razia/scanner');
+    expect(fab.classList.contains('nav-fab')).toBe(true);
     expect(within(nav).getByRole('link', { name: 'Sesi' }).getAttribute('href')).toBe('/razia/setup');
     expect(within(nav).getByRole('link', { name: 'Riwayat' }).getAttribute('href')).toBe('/history');
-    expect(within(nav).getByRole('link', { name: 'Scanner' }).getAttribute('href')).toBe('/razia/scanner');
     expect(within(nav).queryByRole('button', { name: 'Keluar' })).toBeNull();
     const logout = screen.getAllByRole('button', { name: 'Keluar' });
     expect(logout).toHaveLength(1); expect(logout[0]!.closest('header')).not.toBeNull();
-    for (const control of [...row.children]) {
-      expect(control.classList.contains('nav-link')).toBe(true);
-      expect(control.getAttribute('aria-current')).toBe(control.textContent === 'Scanner' ? 'page' : null);
-      expect(control.classList.contains('active')).toBe(control.textContent === 'Scanner');
+    for (const control of [...pill.children]) {
+      const isFab = control === fab;
+      expect(control.classList.contains(isFab ? 'nav-fab' : 'nav-link')).toBe(true);
+      expect(control.getAttribute('aria-current')).toBe(isFab ? 'page' : null);
+      expect(control.classList.contains('active')).toBe(isFab);
     }
     expect(nav.querySelectorAll('[aria-current="page"]')).toHaveLength(1);
     const shell = nav.parentElement!;

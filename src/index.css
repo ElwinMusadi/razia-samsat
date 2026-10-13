@@ -98,10 +98,23 @@
   .account-context { @apply flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1 text-sm text-secondary-foreground; }
   .installation-disclosure > summary { @apply flex min-h-12 min-w-12 cursor-pointer items-center text-sm font-medium text-secondary-foreground; }
   .session-indicator { @apply inline-flex items-center gap-2 text-xs font-semibold; color: var(--success); }
-  .bottom-navigation { padding-bottom: calc(var(--space-2) + env(safe-area-inset-bottom, 0px)); }
-  .nav-link { @apply flex min-h-12 min-w-12 flex-1 flex-col items-center justify-center gap-1 rounded-sm px-1 py-2 text-center text-xs font-semibold text-secondary-foreground; }
-  .nav-link[aria-current='page'] { color: var(--primary); background: color-mix(in srgb, var(--primary) 12%, var(--card)); }
+  .bottom-navigation { display: flex; justify-content: center; padding-inline: var(--space-4);
+  padding-bottom: calc(var(--space-3) + env(safe-area-inset-bottom, 0px)); pointer-events: none; }
+.bottom-navigation-pill { pointer-events: auto; display: flex; align-items: center; gap: var(--space-1);
+  max-width: 100%; background: var(--card); color: var(--card-foreground);
+  border: 1px solid var(--border); border-radius: 999px; padding: var(--space-2) var(--space-5);
+  box-shadow: 0 10px 30px rgb(15 23 42 / 0.16); }
+  .nav-link { @apply relative flex min-h-12 min-w-12 flex-col items-center justify-center gap-1 rounded-full px-2 pb-3 pt-2 text-center text-xs font-semibold text-secondary-foreground; }
   .nav-link svg { width: 20px; height: 20px; }
+  .nav-link[aria-current='page'] { color: var(--primary); }
+  .nav-link[aria-current='page']::after { content: ''; position: absolute; bottom: 5px; left: 50%; transform: translateX(-50%);
+    width: 4px; height: 4px; border-radius: 999px; background: var(--primary); }
+  .nav-fab { display: flex; align-items: center; justify-content: center; flex-shrink: 0;
+    width: 3.5rem; height: 3.5rem; margin-top: -2rem; margin-inline: var(--space-1);
+    border-radius: 999px; background: var(--primary); color: var(--primary-foreground);
+    box-shadow: 0 6px 18px rgb(43 99 246 / 0.45); }
+  .nav-fab svg { width: 26px; height: 26px; }
+  .nav-fab[aria-current='page'] { box-shadow: 0 0 0 4px color-mix(in srgb, var(--primary) 30%, transparent), 0 6px 18px rgb(43 99 246 / 0.45); }
   .password-control { @apply relative; }
   .password-control input { padding-inline-end: var(--space-16); }
   .password-toggle { @apply absolute inset-y-0 right-0 flex min-h-12 w-14 min-w-12 items-center justify-center rounded-md text-foreground; }

@@ -8,7 +8,7 @@ import { Scanner } from './scanner';
 import { HistoryDetailRoute, HistoryListRoute } from './history';
 import { AdminUsersRoute, AdminUserRoute, AdminLocationsRoute } from './admin';
 import { PwaControls, PwaProvider } from './pwa';
-import { ChevronDown, Circle, Download, History, LogOut, MapPin, ScanLine, Shield, UserRound } from 'lucide-react';
+import { ChevronDown, Circle, Download, History, LogOut, MapPin, MapPinned, ScanLine, Shield, UserRound } from 'lucide-react';
 import { Input, PasswordInput } from './components/ui/input';
 import { PageHeader } from './components/ui/layout';
 import { BrandLockup } from './components/ui/brand';
@@ -114,13 +114,14 @@ function Shell({ children }: { children: ReactNode }) {
     {error && <ErrorMessage>{error}</ErrorMessage>}
     <main className="min-w-0">{children}{isScanner && <div className="scanner-session-controls" data-session-controls-footer="">{header}</div>}</main>
     {/* Equal-width 48px targets; content reserves 96px plus the same safe area. */}
-    <nav aria-label="Navigasi utama" className="bottom-navigation fixed inset-x-0 bottom-0 z-20 border-t border-border bg-background pt-2">
-      <div className="mx-auto flex w-full max-w-lg gap-2 px-4">
-        <NavLink className="nav-link" to="/razia/scanner" end><ScanLine aria-hidden="true" />Scanner</NavLink>
+    <nav aria-label="Navigasi utama" className="bottom-navigation fixed inset-x-0 bottom-0 z-20">
+      <div className="bottom-navigation-pill">
         <NavLink className="nav-link" to="/razia/setup" end><MapPin aria-hidden="true" />Sesi</NavLink>
-        <NavLink className="nav-link" to="/history"><History aria-hidden="true" />Riwayat</NavLink>
+        {auth?.user.role === 'ADMIN' && <NavLink className="nav-link" to="/history"><History aria-hidden="true" />Riwayat</NavLink>}
+        <NavLink className="nav-fab" to="/razia/scanner" end aria-label="Scanner"><ScanLine aria-hidden="true" /></NavLink>
+        {auth?.user.role !== 'ADMIN' && <NavLink className="nav-link" to="/history"><History aria-hidden="true" />Riwayat</NavLink>}
         {auth?.user.role === 'ADMIN' && <NavLink className="nav-link" to="/admin/users"><Shield aria-hidden="true" />Admin</NavLink>}
-         {auth?.user.role === 'ADMIN' && <NavLink className="nav-link" to="/admin/locations"><MapPin aria-hidden="true" />Lokasi</NavLink>}
+        {auth?.user.role === 'ADMIN' && <NavLink className="nav-link" to="/admin/locations"><MapPinned aria-hidden="true" />Lokasi</NavLink>}
       </div>
     </nav>
   </div>;
