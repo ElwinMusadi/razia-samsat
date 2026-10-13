@@ -120,7 +120,7 @@ function Shell({ children }: { children: ReactNode }) {
         <NavLink className="nav-link" to="/razia/setup" end><MapPin aria-hidden="true" />Sesi</NavLink>
         <NavLink className="nav-link" to="/history"><History aria-hidden="true" />Riwayat</NavLink>
         {auth?.user.role === 'ADMIN' && <NavLink className="nav-link" to="/admin/users"><Shield aria-hidden="true" />Admin</NavLink>
-         {auth?.user.role === 'ADMIN' && <NavLink className="nav-link" to="/admin/locations"><MapPin aria-hidden="true" />Lokasi</NavLink>}}
+         {auth?.user.role === 'ADMIN' && <NavLink className="nav-link" to="/admin/locations"><MapPin aria-hidden="true" />Lokasi</NavLink>}
       </div>
     </nav>
   </div>;
