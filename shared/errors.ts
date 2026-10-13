@@ -7,6 +7,7 @@ export const errorCatalog = {
   ROUTE_NOT_FOUND: { status: 404, message: 'Endpoint tidak ditemukan.' },
   RAID_SESSION_NOT_FOUND: { status: 404, message: 'Sesi razia tidak ditemukan.' },
   USER_NOT_FOUND: { status: 404, message: 'Pengguna tidak ditemukan.' },
+  LOCATION_NOT_FOUND: { status: 404, message: 'Lokasi tidak ditemukan.' },
   SESSION_NOT_FOUND: { status: 404, message: 'Sesi perangkat tidak ditemukan.' },
   USERNAME_TAKEN: { status: 409, message: 'Nama pengguna sudah digunakan.' },
   SELF_DEACTIVATION_FORBIDDEN: { status: 409, message: 'Akun sendiri tidak dapat dinonaktifkan.' },

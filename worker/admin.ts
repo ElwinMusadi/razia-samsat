@@ -12,6 +12,29 @@ import type { App, AppEnv, Role } from './types';
 export type AdminUser = { id: string; username: string; role: Role; is_active: boolean; created_at: number; updated_at: number; active_session_count: number };
 type UserRow = Omit<AdminUser, 'is_active'> & { is_active: number };
 type SessionRow = { id: string; created_at: number; expires_at: number; is_current: number };
+export type AdminLocation = { id: string; name: string; is_active: boolean; created_at: number; updated_at: number };
+type LocationRow = Omit<AdminLocation, 'is_active'> & { is_active: number };
+const LOCATION_FIELDS = 'id, name, is_active, created_at, updated_at';
+const toLocation = (row: LocationRow): AdminLocation => ({ id: row.id, name: row.name, is_active: row.is_active === 1,
+ created_at: row.created_at, updated_at: row.updated_at });
+function locationTarget(c: Context<AppEnv>, id: string): D1PreparedStatement {
+ return statement(c, `SELECT ${LOCATION_FIELDS} FROM locations WHERE id = ? AND EXISTS (${ADMIN})`, id, ...bindings(c));
+}
+function locationFrom(result: D1Result): AdminLocation {
+ const row = result.results[0] as LocationRow | undefined;
+ if (!row) throw new AppError('LOCATION_NOT_FOUND');
+ return toLocation(row);
+}
+// Audit trail for location mutations binds target_location_id (never target_user_id).
+function auditLocation(c: Context<AppEnv>, auditId: string, action: string, locationId: string, condition: string, values: (string | number)[] = []): D1PreparedStatement {
+ return statement(c, `INSERT INTO admin_audit_logs(id,actor_user_id,action,target_location_id)
+ SELECT ?, ?, ?, ? WHERE EXISTS (${ADMIN}) AND (${condition})`, auditId, currentAuth(c).userId, action, locationId, ...bindings(c), ...values);
+}
+const normalizeLocationName = (value: unknown): string | null => {
+ if (typeof value !== 'string') return null;
+ const name = value.trim();
+ return name.length >= 1 && name.length <= 200 ? name : null;
+};
 // Bind exact server-authenticated identity. A second device cannot authorize a stale request.
 const AUTH = `SELECT u.role FROM user_sessions s JOIN users u ON u.id = s.user_id
  WHERE s.id = ? AND s.user_id = ? AND s.revoked_at IS NULL AND s.expires_at > unixepoch()
@@ -155,5 +178,59 @@ export function registerAdminRoutes(app: App): void {
   const signed_out = revoked.meta.changes > 0 && id === currentAuth(c).userId && (!specific || sessionId === currentAuth(c).sessionId);
   if (signed_out) clearSessionCookie(c);
   return c.json({ user,signed_out });
+ });
+ // --- Location management (ADMIN only). Delete is a soft delete: raid history keeps its FK target.
+ app.get('/api/admin/locations', requireAuth(), requireRole('ADMIN'), async c => {
+  readPage(c, false);
+  const [actor, data] = await c.env.DB.batch([authorization(c),
+   statement(c, `SELECT ${LOCATION_FIELDS} FROM locations WHERE EXISTS (${ADMIN}) ORDER BY name COLLATE NOCASE, id`, ...bindings(c))]);
+  assertActor(c, actor);
+  return c.json({ locations: (data.results as LocationRow[]).map(toLocation) });
+ });
+ app.post('/api/admin/locations', requireAuth(), requireRole('ADMIN'), async c => {
+  const body = await exactBody(c, ['name']);
+  const name = normalizeLocationName(body.name);
+  if (name === null) throw new AppError('INVALID_INPUT');
+  await preflight(c);
+  const id = crypto.randomUUID(); const auditId = crypto.randomUUID();
+  const results = await c.env.DB.batch([authorization(c),
+   statement(c, `INSERT INTO locations(id,name) SELECT ?,? WHERE EXISTS (${ADMIN})`, id, name, ...bindings(c)),
+   auditLocation(c, auditId, 'LOCATION_CREATED', id, 'changes() = 1 AND EXISTS (SELECT 1 FROM locations WHERE id = ? AND name = ?)', [id,name]),
+   locationTarget(c, id)]);
+  assertActor(c, results[0]);
+  return c.json(locationFrom(results[3]), 201);
+ });
+ app.patch('/api/admin/locations/:id', requireAuth(), requireRole('ADMIN'), async c => {
+  const body = await readJsonObject(c);
+  const keys = Object.keys(body);
+  const allowed = ['name','is_active'];
+  if (keys.length < 1 || keys.some(key => !allowed.includes(key))) throw new AppError('INVALID_INPUT');
+  const name = 'name' in body ? normalizeLocationName(body.name) : undefined;
+  const active = 'is_active' in body ? body.is_active : undefined;
+  if ((name === null) || (active !== undefined && typeof active !== 'boolean')) throw new AppError('INVALID_INPUT');
+  const id = targetId(c); await preflight(c);
+  const sets: string[] = []; const values: (string | number)[] = [];
+  if (name !== undefined) { sets.push('name = ?'); values.push(name); }
+  if (active !== undefined) { sets.push('is_active = ?'); values.push(Number(active)); }
+  const auditId = crypto.randomUUID();
+  const results = await c.env.DB.batch([authorization(c), locationTarget(c, id),
+   statement(c, `UPDATE locations SET ${sets.join(', ')},updated_at = max(unixepoch(),created_at)
+    WHERE id = ? AND EXISTS (${ADMIN})`, ...values, id, ...bindings(c)),
+   // Bind the audit to this exact mutation: only a real change is logged.
+   auditLocation(c, auditId, 'LOCATION_UPDATED', id, 'changes() = 1 AND EXISTS (SELECT 1 FROM locations WHERE id = ?)', [id]),
+   locationTarget(c, id)]);
+  assertActor(c, results[0]); locationFrom(results[1]);
+  return c.json(locationFrom(results[4]));
+ });
+ app.delete('/api/admin/locations/:id', requireAuth(), requireRole('ADMIN'), async c => {
+  await exactBody(c, []);
+  const id = targetId(c); const auditId = crypto.randomUUID();
+  const [actor, before, updated, logged, selected] = await c.env.DB.batch([authorization(c), locationTarget(c, id),
+   statement(c, `UPDATE locations SET is_active = 0,updated_at = max(unixepoch(),created_at)
+    WHERE id = ? AND is_active = 1 AND EXISTS (${ADMIN})`, id, ...bindings(c)),
+   auditLocation(c, auditId, 'LOCATION_DEACTIVATED', id, 'changes() = 1 AND EXISTS (SELECT 1 FROM locations WHERE id = ? AND is_active = 0)', [id]),
+   locationTarget(c, id)]);
+  assertActor(c, actor); locationFrom(before);
+  return c.json(locationFrom(selected));
  });
 }
