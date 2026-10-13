@@ -40,7 +40,7 @@ describe('public service worker privacy boundary', () => {
   it('precaches exactly public assets without credentials, redirects or private HTML', async () => {
     const h = harness(); await h.lifecycle('install');
     expect([...h.entries.keys()]).toEqual([...assets.keys()]);
-    expect(h.caches.open).toHaveBeenCalledWith('razia-samsat-public-v3');
+    expect(h.caches.open).toHaveBeenCalledWith('razia-samsat-public-v4');
     expect(h.fetch.mock.calls.map(([input]) => new URL(input as string).pathname)).toEqual([...assets.keys()]);
     for (const [, options] of h.fetch.mock.calls) expect(options).toEqual({ credentials: 'omit', cache: 'reload', redirect: 'error' });
     expect(h.skipWaiting).not.toHaveBeenCalled(); expect(h.claim).not.toHaveBeenCalled();
@@ -57,7 +57,7 @@ describe('public service worker privacy boundary', () => {
   });
   it('cleans only older application caches without claiming or skipping waiting', async () => {
     const h = harness(); await h.lifecycle('activate');
-    expect(h.caches.delete.mock.calls).toEqual([['razia-samsat-public-v0'], ['razia-samsat-public-v1'], ['razia-samsat-public-v2']]);
+    expect(h.caches.delete.mock.calls).toEqual([['razia-samsat-public-v0'], ['razia-samsat-public-v1'], ['razia-samsat-public-v2'], ['razia-samsat-public-v3']]);
     expect(h.claim).not.toHaveBeenCalled(); expect(h.skipWaiting).not.toHaveBeenCalled();
   });
   const bypass = ['/api', '/api/auth/me', '/api/auth/me?input=synthetic', '/api/vehicle-lookups', '/api/admin/users', '/%61pi/auth/me', '/api%2fauth/me', '/offline?input=synthetic', '/icons/icon-192.png?x=1', '/login?input=synthetic', '/unknown', '/history/not-a-uuid', '/assets/index-synthetic.js', 'https://other.example/login'];
@@ -109,7 +109,7 @@ describe('public service worker privacy boundary', () => {
 describe('installable public artifacts', () => {
   it('declares Indonesian standalone login entry and actual non-maskable PNG icons', async () => {
     const manifest = JSON.parse(await readFile(new URL('../public/manifest.webmanifest', import.meta.url), 'utf8'));
-    expect(manifest).toMatchObject({ id: '/', lang: 'id', start_url: '/login', scope: '/', display: 'standalone', theme_color: '#F3F7F9', background_color: '#F3F7F9' });
+    expect(manifest).toMatchObject({ id: '/', lang: 'id', start_url: '/login', scope: '/', display: 'standalone', theme_color: '#E5EDF8', background_color: '#E5EDF8' });
     expect(manifest.name).toBe('Razia SAMSAT Kota Kupang'); expect(manifest.short_name).toBe('Razia SAMSAT');
     expect(manifest.icons).toHaveLength(2);
     const sharp = createRequire(import.meta.url)('sharp');
@@ -126,10 +126,10 @@ describe('installable public artifacts', () => {
   it('links install metadata and keeps offline page anonymous, script-free and external-styled', async () => {
     const index = await readFile(new URL('../index.html', import.meta.url), 'utf8');
     expect(index).toContain('rel="manifest" href="/manifest.webmanifest"'); expect(index).toContain('name="color-scheme" content="light"');
-    expect(index).toContain('name="theme-color" content="#F3F7F9"');
-    expect(advisory).toContain('name="theme-color" content="#F3F7F9"');
+    expect(index).toContain('name="theme-color" content="#E5EDF8"');
+    expect(advisory).toContain('name="theme-color" content="#E5EDF8"');
     const offlineCss = await readFile(new URL('../public/offline.css', import.meta.url), 'utf8');
-    expect(offlineCss).toContain('--background: #F3F7F9');
+    expect(offlineCss).toContain('--background: #E5EDF8');
     expect(advisory).toContain('tidak tersedia offline'); expect(advisory).toContain('href="/login"'); expect(advisory).toContain('href="/offline.css"');
     expect(advisory).not.toMatch(/<script|<style|<input|synthetic|owner_name|password_hash/);
   });

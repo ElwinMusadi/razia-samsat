@@ -16,16 +16,22 @@ afterEach(() => { cleanup(); vi.restoreAllMocks(); });
 function rgb(hex: string) { return hex.replace('#', '').match(/../g)!.map(value => parseInt(value, 16) / 255); }
 function luminance(color: number[]) { return color.map(value => value <= 0.04045 ? value / 12.92 : ((value + 0.055) / 1.055) ** 2.4).reduce((sum, value, index) => sum + value * [0.2126, 0.7152, 0.0722][index]!, 0); }
 function contrast(a: number[], b: number[]) { const l = [luminance(a), luminance(b)].sort((x, y) => y - x); return (l[0]! + 0.05) / (l[1]! + 0.05); }
-const tokens = { canvas: rgb('#F3F7F9'), ink: rgb('#0F1319'), white: rgb('#FFFFFF'), blue: rgb('#2B63F6'), link: rgb('#1E4FD6'), controlBorder: rgb('#64748B'), success: rgb('#16803C'), danger: rgb('#C62828'), neutral: rgb('#6B7280'), warning: rgb('#A16207') };
+const tokens = { canvas: rgb('#E5EDF8'), ink: rgb('#0F1319'), white: rgb('#FFFFFF'), blue: rgb('#2B63F6'), link: rgb('#163B8A'), session: rgb('#043D38'), controlBorder: rgb('#64748B'), success: rgb('#16803C'), danger: rgb('#C62828'), neutral: rgb('#6B7280'), warning: rgb('#A16207') };
 
 describe('approved design foundation', () => {
   it('keeps approved colors centralized and operational fonts self-hosted', () => {
-    for (const value of ['#F3F7F9', '#0F1319', '#8A8F96', '#E7E4DC', '#2B63F6', '#1E4FD6', '#64748B', '#16803C', '#C62828', '#6B7280', '#A16207']) expect(css).toContain(value);
+    for (const value of ['#E5EDF8', '#0F1319', '#8A8F96', '#C6D5E8', '#2B63F6', '#163B8A', '#043D38', '#64748B', '#16803C', '#C62828', '#6B7280', '#A16207']) expect(css).toContain(value);
     expect(css).toContain('@fontsource/inter/latin-400.css'); expect(css).toContain('@fontsource/inter/latin-800.css'); expect(css).toContain('@fontsource/dm-serif-display/latin-400.css');
     expect(css).not.toMatch(/https?:\/\/|--radius-sm: var\(--radius-sm\)/);
   });
-  it.each(['ink', 'blue', 'success', 'danger', 'warning'] as const)('meets normal-text AA for %s on the canvas and white surface', color => {
+  it.each(['ink', 'link', 'session', 'danger'] as const)('meets normal-text AA for %s on the canvas and white surface', color => {
     expect(contrast(tokens[color], tokens.canvas)).toBeGreaterThanOrEqual(4.5); expect(contrast(tokens[color], tokens.white)).toBeGreaterThanOrEqual(4.5);
+  });
+  it('meets normal-text AA for white text on primary fill and status colors on white surfaces', () => {
+    expect(contrast(tokens.white, tokens.blue)).toBeGreaterThanOrEqual(4.5);
+    for (const color of ['success', 'danger', 'warning', 'neutral'] as const) {
+      expect(contrast(tokens[color], tokens.white)).toBeGreaterThanOrEqual(4.5);
+    }
   });
   it('gives neutral status an explicit white surface for normal-text AA', () => {
     expect(contrast(tokens.neutral, tokens.white)).toBeGreaterThanOrEqual(4.5);
@@ -130,14 +136,22 @@ describe('approved design foundation', () => {
     expect(screen.getByRole('status').textContent).toContain('Buka sesi.'); expect(screen.getByRole('alert').textContent).toContain('Coba lagi.');
     expect(screen.getByRole('alert').className).toContain('feedback-warning');
   });
-  it('implements solid-first chrome with progressive blur and explicit accessibility overrides', () => {
-    expect(css).toMatch(/--chrome-surface:\s*var\(--card\);/);
-    expect(css).toMatch(/--chrome-filter:\s*none;/);
-    expect(css).toMatch(/--chrome-border:\s*#D6DEE3;/);
-    expect(css).toContain('@supports ((backdrop-filter: blur(12px)) or (-webkit-backdrop-filter: blur(12px)))');
-    expect(css).toContain('--chrome-surface: rgb(255 255 255 / 0.9); --chrome-filter: blur(12px);');
-    expect(css).toMatch(/@media \(prefers-reduced-transparency: reduce\) \{\s*:root \{\s*--chrome-surface: var\(--card\);\s*--chrome-filter: none;/);
-    expect(css).toMatch(/@media \(forced-colors: active\) \{[^}]*--chrome-surface: Canvas;[^}]*--chrome-filter: none;/);
+  it('implements solid-first glass and chrome with progressive blur and explicit accessibility overrides', () => {
+    expect(css).toMatch(/--glass-surface:\s*var\(--card\);/);
+    expect(css).toMatch(/--glass-filter:\s*none;/);
+    expect(css).toMatch(/--chrome-border:\s*var\(--border\);/);
+    expect(css).toMatch(/--chrome-surface:\s*var\(--glass-surface\);/);
+    expect(css).toMatch(/--chrome-filter:\s*var\(--glass-filter\);/);
+    expect(css).toContain('@supports ((backdrop-filter: blur(18px)) or (-webkit-backdrop-filter: blur(18px)))');
+    expect(css).toContain('--glass-surface: rgb(255 255 255 / 0.68);');
+    expect(css).toContain('--glass-child: rgb(255 255 255 / 0.25);');
+    expect(css).toContain('--chrome-surface: rgb(255 255 255 / 0.72);');
+    expect(css).toContain('--glass-data: rgb(255 255 255 / 0.88);');
+    expect(css).toContain('--glass-critical: rgb(255 255 255 / 0.95);');
+    expect(css).toContain('--glass-filter: blur(18px);');
+    expect(css).toContain('--glass-stroke: rgb(255 255 255 / 0.75);');
+    expect(css).toMatch(/@media \(prefers-reduced-transparency: reduce\) \{[\s\S]*?--glass-surface: var\(--card\);[\s\S]*?--glass-filter: none;/);
+    expect(css).toMatch(/@media \(forced-colors: active\) \{[^}]*--glass-surface: Canvas;[^}]*--glass-filter: none;/);
   });
   it('isolates header chrome pseudo-layer and disables it in scanner session controls while keeping account panel opaque', () => {
     expect(css).toMatch(/\.app-header::before \{[^}]*content: '';[^}]*background: var\(--chrome-surface\);[^}]*backdrop-filter: var\(--chrome-filter\);/);
@@ -148,21 +162,30 @@ describe('approved design foundation', () => {
     expect(accountPanelMatch![1]).toContain('bg-card');
     expect(accountPanelMatch![1]).not.toMatch(/backdrop-filter/);
   });
-  it('keeps data cards opaque white without filters and bounds blur variables to 12px', () => {
-    // Note: JSDOM cannot evaluate rendered blur or visual composition; actual visual blur rendering is MANUAL VISUAL PENDING.
-    for (const className of ['panel', 'surface', 'vehicle-result', 'metric', 'history-row', 'empty-state']) {
-      expect(css).toMatch(new RegExp(`\\.${className}[^{]*\\{[^}]*bg-card`));
-    }
-    const backdropRules = css.match(/[^{}]+(?=\{[^}]*backdrop-filter)/g) ?? [];
-    for (const rule of backdropRules) {
-      expect(rule).toMatch(/\.app-header::before|\.bottom-navigation-pill|\.scanner-search|@supports/);
-      expect(rule).not.toMatch(/\.vehicle-result|\.metric|\.history-row|\.panel|\.surface|\.empty-state/);
-    }
+  it('applies top-level glass material with 18px blur while keeping nested rows and critical panels filter-free', () => {
+    // Glass frames carry the filter; nested rows and critical feedback disable backdrop-filter to prevent nesting traps.
+    expect(css).toMatch(/\.panel,\s*\.surface,\s*\.vehicle-result,\s*\.empty-state,\s*\.installation-card,\s*\.reading-layout > ul,\s*\.reading-layout > section:not\(\.panel\) > ul\s*\{[^}]*background:\s*var\(--glass-surface\);[^}]*backdrop-filter:\s*var\(--glass-filter\);/);
+    expect(css).toMatch(/\.panel \.panel,\s*\.panel \.surface,\s*\.surface \.panel,\s*\.reading-layout > ul \.panel,\s*\.history-row,\s*\.panel > ul > li,\s*\.panel ol > li\s*\{[^}]*background:\s*var\(--glass-child\);[^}]*backdrop-filter:\s*none;/);
+    expect(css).toMatch(/\.metric\s*\{[^}]*background:\s*var\(--glass-data\);/);
+    expect(css).toMatch(/\.status-group,\s*\.vehicle-facts\s*\{[^}]*background:\s*var\(--glass-data\);/);
+    expect(css).toMatch(/\.error-message,\s*\.feedback:not\(\.feedback-warning\),\s*\.panel\.confirmation,\s*\.account-panel\s*\{[^}]*background:\s*var\(--glass-critical\);[^}]*backdrop-filter:\s*none;/);
+
     const blurs = css.match(/blur\([^)]+\)/g) ?? [];
     expect(blurs.length).toBeGreaterThan(0);
     for (const blur of blurs) {
-      expect(blur).toBe('blur(12px)');
+      expect(blur).toBe('blur(18px)');
     }
+  });
+  it('defines progressive glass surfaces with transmission and edge highlight', () => {
+    expect(css).toContain('--glass-surface: rgb(255 255 255 / 0.68);');
+    expect(css).toContain('--chrome-surface: rgb(255 255 255 / 0.72);');
+    expect(css).toContain('--glass-stroke: rgb(255 255 255 / 0.75);');
+    expect(css).toContain('inset 0 1px 0 rgb(255 255 255 / 0.9)');
+    expect(css).toContain('var(--primary) 48%');
+    expect(css).toContain('var(--canvas-teal) 36%');
+    expect(css).toContain('transparent 46.5%');
+    expect(css.indexOf('a.panel:hover { background: var(--glass-data); border-color: var(--control-border); }'))
+      .toBeGreaterThan(css.indexOf('.panel .panel, .panel .surface, .surface .panel'));
   });
   it('satisfies 320px compact navigation geometry arithmetic across all 5 destinations in source sizing', () => {
     const linkWidth = 48;
@@ -179,11 +202,19 @@ describe('approved design foundation', () => {
     expect(css).toMatch(/\.nav-link \{[^}]*flex: 0 0 var\(--space-12\);/);
     expect(css).toMatch(/\.nav-fab \{[^}]*margin-inline: 0;/);
   });
-  it('enforces strong link contrast over 90% composited glass and verifies non-text control border contrast', () => {
-    const compositedGlass = tokens.white.map(value => value * 0.9);
+  it('enforces contrast on 68% glass and 72% chrome over the worst-case black backdrop', () => {
+    const compositedGlass = tokens.white.map(value => value * 0.68);
+    const chrome = tokens.white.map(value => value * 0.72);
     expect(contrast(tokens.blue, compositedGlass)).toBeLessThan(4.5);
     expect(contrast(tokens.link, compositedGlass)).toBeGreaterThanOrEqual(4.5);
     expect(contrast(tokens.link, tokens.white)).toBeGreaterThanOrEqual(4.5);
+    expect(contrast(tokens.ink, compositedGlass)).toBeGreaterThanOrEqual(4.5);
+    expect(contrast(tokens.session, compositedGlass)).toBeGreaterThanOrEqual(4.5);
+    const secondary = tokens.ink.map((value, index) => value * 0.76 + tokens.canvas[index]! * 0.24);
+    expect(contrast(secondary, chrome)).toBeGreaterThanOrEqual(4.5);
+    expect(css).toContain('--danger-strong: #701A1A;');
+    expect(css).toContain(".field[data-invalid='true'] { color: var(--danger-strong); }");
+    expect(contrast(rgb('#701A1A'), compositedGlass)).toBeGreaterThanOrEqual(4.5);
     expect(css).toMatch(/\.nav-link\[aria-current='page'\] \{[^}]*color: var\(--link\);/);
     expect(contrast(tokens.controlBorder, tokens.white)).toBeGreaterThanOrEqual(3.0);
     expect(contrast(tokens.controlBorder, tokens.canvas)).toBeGreaterThanOrEqual(3.0);

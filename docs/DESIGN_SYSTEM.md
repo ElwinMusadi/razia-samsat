@@ -10,30 +10,40 @@
 
 ---
 
-## Glassmorphism presentation extension — 13 October 2026
+## Glassmorphism v2 presentation extension — 13 October 2026
 
 The implementation scope approved in `GLASSMORPHISM_REDESIGN_PLAN.md` supersedes
 older visual-only values below where they conflict. Interaction, domain, privacy,
 role, keyboard/focus, and API constraints remain unchanged. This is a local
 implementation checkpoint, not approval to commit, push, or deploy.
 
-- Canvas/theme metadata: `#F3F7F9`; primary data and form surfaces remain opaque white.
-- Glass is restricted to chrome: header decorative layer, bottom navigation, and
-  scanner search band. It is solid first, with 90% white and 12px blur only when
-  supported. Scanner footer header and account panel remain opaque; no nested blur.
-- Operational link/active/focus color: `#1E4FD6`; `#2B63F6` remains brand/action fill.
-  Control border: `#64748B`; decorative chrome border: `#D6DEE3`.
+- The earlier chrome-only extension was visually too subtle and is superseded.
+- Canvas/theme metadata: `#E5EDF8`, with static blue/teal fields and sharp diagonal
+  facets softened behind glass. No ambient animation, new images, or external assets.
+- Main containers on login, setup, scanner, history, admin, and offline use 68% white,
+  18px blur, bright edge/highlight, and restrained blue shadow where supported.
+- Chrome uses 72% white for secondary-text contrast. Nested list rows use a 25%
+  tint without a second filter; data cells 88%, critical feedback/account panels 95%.
+  Native inputs remain solid white. The scanner notch stays opaque and the footer
+  retains its 128px plus safe-area reserve and lower stacking context.
+- Operational link/active color: `#163B8A`; `#2B63F6` remains brand/action fill.
+  Invalid field labels use `#701A1A`. Control border: `#64748B`; base border `#C6D5E8`.
 - Inter remains the operational font; DM Serif is restrained to brand/empty states.
   Data uses tabular numbers; micro-interactions are 150-180ms with reduced-motion.
 - Native details, Enter-only NOPOL lookup, role navigation, password cleanup,
   reconciliation, source contracts, and privacy cache rules remain authoritative.
-- HTML/manifest/offline theme assets and public cache version `v3` change together.
+- HTML/manifest/offline theme assets and public cache version `v4` change together.
   Service worker cache policy, precache allowlist, and activation behavior do not change.
 - Unsupported blur, reduced-transparency, and forced-colors use solid/system-color
   fallbacks. The optional media feature is not required for base contrast.
 
-Rendered behavior, physical-device performance, and full accessibility acceptance
-must be verified separately. CSS-source tests are not proof of visual compliance.
+Local synthetic Chrome samples cover all application routes at 390/1024px, including
+a found Scanner result. Reduced-transparency and forced-colors were exercised.
+Physical-device performance and full accessibility acceptance still require UAT.
+CSS-source tests and computed filter values alone are not proof of visual fidelity.
+Secondary text on 68% panels is assessed against the permitted canvas; only 72%
+chrome is tested against a black scrolling backdrop. These are different guarantees.
+Long-list mid-scroll appearance and hardware accessibility/performance remain pending.
 
 ---
 

@@ -1,6 +1,8 @@
 # Implementation Plan: Glassmorphism Razia SAMSAT
 
 Status: IMPLEMENTASI LOKAL fase 1-5 selesai; regression lulus, UAT perangkat/release belum disetujui.
+Revisi material v2 disetujui setelah audit fidelitas; bagian checkpoint v2 di bawah
+menggantikan batasan chrome-only dan nilai material v1 pada rencana historis ini.
 Tanggal: 13 Oktober 2026.
 Basis analisis: branch `main`, HEAD `51f79f1c4b474769b5e5cd550f06210a5d2b77e8`.
 Owner analisis, planning, dan implementasi frontend: `frontend-engineer`.
@@ -305,6 +307,44 @@ fase 1 terlebih dahulu, menunjukkan sample login/scanner dan hasil validasinya, 
 melanjutkan roll-out layar lain setelah sample dinyatakan sesuai.
 
 Referensi kompatibilitas: https://developer.mozilla.org/en-US/docs/Web/CSS/@media/prefers-reduced-transparency
+
+## Checkpoint v2 — koreksi fidelitas Glassmorphism, 13 Oktober 2026
+
+Audit frontend menemukan glass v1 terlalu samar: putih 90% di atas canvas hampir
+putih dan konten seluruhnya opak. User mengotorisasi koreksi material seluruh layar.
+
+- Canvas `#E5EDF8`: static blue/teal fields dan diagonal facets agar transmisi warna
+  serta blur benar-benar terlihat, bukan hanya deklarasi `backdrop-filter`.
+- Kontainer utama 68% putih/18px blur; chrome 72%; nested rows 25% tanpa blur kedua;
+  data 88%, feedback/account 95%; input tetap 100% putih. Edge/highlight dan shadow
+  biru memisahkan lapisan. Label invalid diperdalam ke `#701A1A`, bukan menurunkan
+  ambang kontras test. Link `#163B8A`; body ink dan brand/action fill tetap.
+- Seluruh route tercakup termasuk login/offline, bukan chrome saja. Admin session
+  list yang berada dalam panel dikecualikan dari filter tambahan; hover link pulih.
+- Notch scanner, reserved bottom 128px + safe-area, footer z-index, handlers, auth,
+  API, role, cache privacy, dan kontrak domain tidak diubah.
+- Theme HTML/manifest/offline dan cache public `v4` diselaraskan atomik. Tidak ada
+  perubahan precache list, skipWaiting, clients.claim, atau forced reload.
+- Tests: 37 file, 1538 PASS; typecheck/build PASS; lint 0 error, 9 warning existing.
+- QA lokal memakai fetch sintetis dan external network diblokir: 18 render, seluruh
+  sembilan route pada 390/1024px; tidak ada overflow/alert error/dev banner. Found
+  result Scanner berhasil ditampilkan. Snapshot browser dipisahkan dari produksi.
+- Reduced-transparency menghasilkan putih solid/filter none. Forced-colors memberi
+  warna sistem/filter-shadow-gradient none. Footer Scanner 320px tetap berjarak
+  33,28px dari FAB pada scroll maksimum. Cache dan service worker dibypass hanya
+  di profil browser QA untuk memastikan artefak lokal terbaru, tidak pada aplikasi.
+- Kontras test menggunakan komposit worst-case dan tidak menggantikan pemeriksaan
+  kontras rendered semua state, TalkBack, keyboard Android, high-DPI, dan performa
+  perangkat lapangan yang masih pending. Persetujuan estetika akhir tetap oleh user.
+- Teks sekunder pada panel 68% dijamin terhadap canvas yang diizinkan, bukan latar
+  hitam arbitrer. Chrome 72% diuji terhadap hitam; ink/link/label invalid juga diuji
+  pada komposit panel. Tampilan halaman daftar panjang saat scroll tengah masih
+  perlu dinilai; gradient document-height dapat lebih samar di area tertentu.
+- Review independen final PASS WITH NOTES; tidak ada temuan Critical/High/Medium.
+- Source, test, metadata, dan dokumentasi lokal belum di-commit/push pada checkpoint.
+  Perubahan `.gitignore` operator tidak diubah dan tidak termasuk scope redesign.
+
+## Catatan historis v1
 
 ## Checkpoint implementasi — 13 Oktober 2026
 
