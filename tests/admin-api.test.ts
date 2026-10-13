@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { api, ApiError, isAcceptablePassword, normalizeUsername, parseAdminUser, parseAdminUsers, parseAdminSession, parseAdminSessions, parseAdminMutation, REQUEST_TIMEOUT_MS } from '../src/lib/api';
+import { api, ApiError, isAcceptablePassword, normalizeUsername, parseAdminUser, parseAdminUsers, parseAdminSession, parseAdminSessions, parseAdminMutation, parseAdminLocation, parseAdminLocations, REQUEST_TIMEOUT_MS, type AdminLocation } from '../src/lib/api';
 
 const uuid = (n: number) => `00000000-0000-4000-8000-${String(n).padStart(12, '0')}`;
 const user = { id: uuid(1), username: 'synthetic.admin', role: 'ADMIN' as const, is_active: true, created_at: 1791331200, updated_at: 1791331201, active_session_count: 2 };
@@ -109,5 +109,41 @@ describe('admin exact requests', () => {
     const rejected = expect(api.adminPassword(user.id, 'x')).rejects.toMatchObject({ code: 'TIMEOUT' });
     await vi.advanceTimersByTimeAsync(REQUEST_TIMEOUT_MS); await rejected;
     expect(fetcher).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('admin locations contracts', () => {
+  const location = (extra: Partial<AdminLocation> = {}): AdminLocation => ({ id: uuid(1), name: 'Jln. El Tari', is_active: true, created_at: 1791331200, updated_at: 1791331201, ...extra });
+  it('projects every DTO without private extras', () => {
+    expect(parseAdminLocation({ ...location(), ...extras })).toEqual(location());
+    expect(parseAdminLocations({ locations: [{ ...location(), ...extras }], ...extras })).toEqual([location()]);
+    expect(parseAdminLocation({ ...location(), is_active: false })).toMatchObject({ is_active: false });
+  });
+  it.each([null, [], {}, { ...location(), id: 'bad' }, { ...location(), name: '' }, { ...location(), name: '   ' }, { ...location(), name: 'x'.repeat(201) }, { ...location(), name: 123 }, { ...location(), is_active: 1 }, { ...location(), is_active: 'yes' }, { ...location(), created_at: -1 }, { ...location(), updated_at: 1 }])('rejects malformed locations %#', body => {
+    expect(() => parseAdminLocation(body)).toThrow(ApiError);
+  });
+  it('rejects malformed location lists', () => {
+    expect(() => parseAdminLocations(null)).toThrow(ApiError);
+    expect(() => parseAdminLocations({})).toThrow(ApiError);
+    expect(() => parseAdminLocations({ locations: [{ ...location(), name: '' }] })).toThrow(ApiError);
+  });
+  it('enforces expected id binding', () => {
+    expect(() => parseAdminLocation(location(), uuid(2))).toThrow(ApiError);
+    expect(parseAdminLocation(location(), uuid(1))).toEqual(location());
+  });
+  it('sends PATCH and DELETE with the right method and body', async () => {
+    const fetcher = vi.fn<typeof fetch>().mockResolvedValue(json(location()));
+    vi.stubGlobal('fetch', fetcher);
+    await api.adminCreateLocation('Jln. El Tari');
+    expect(fetcher).toHaveBeenLastCalledWith('/api/admin/locations', expect.objectContaining({ method: 'POST', body: JSON.stringify({ name: 'Jln. El Tari' }) }));
+    await api.adminUpdateLocation(uuid(1), { name: 'Baru' });
+    expect(fetcher).toHaveBeenLastCalledWith('/api/admin/locations/' + uuid(1), expect.objectContaining({ method: 'PATCH', body: JSON.stringify({ name: 'Baru' }) }));
+    await api.adminUpdateLocation(uuid(1), { is_active: false });
+    expect(fetcher).toHaveBeenLastCalledWith('/api/admin/locations/' + uuid(1), expect.objectContaining({ method: 'PATCH', body: JSON.stringify({ is_active: false }) }));
+    await api.adminDeleteLocation(uuid(1));
+    expect(fetcher).toHaveBeenLastCalledWith('/api/admin/locations/' + uuid(1), expect.objectContaining({ method: 'DELETE', body: JSON.stringify({}) }));
+    await api.adminLocations();
+    expect(fetcher).toHaveBeenLastCalledWith('/api/admin/locations', expect.objectContaining({ method: 'GET' }));
+    expect(fetcher).toHaveBeenCalledTimes(5);
   });
 });
