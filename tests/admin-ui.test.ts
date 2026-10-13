@@ -63,7 +63,7 @@ describe('admin list, guards and navigation', () => {
   it.each(['/admin/users', detail])('OFFICER direct URL %s shows403 without metadata fetch or logout', async path => {
     routes(undefined, auth('OFFICER')); mount(path); await screen.findByRole('heading', { name: 'Akses ditolak (403)' });
     expect(adminCalls()).toHaveLength(0); expect(screen.queryByRole('link', { name: 'Admin' })).toBeNull();
-    expect([...screen.getByRole('navigation').firstElementChild!.children].map(node => node.textContent)).toEqual(['Scanner', 'Sesi', 'Riwayat']);
+    expect([...screen.getByRole('navigation').firstElementChild!.children].map(node => node.textContent)).toEqual(['Sesi', '', 'Riwayat']);
     expect(screen.getByTestId('path').textContent).toBe(path); expect(screen.getByRole('button', { name: 'Keluar' })).toBeTruthy();
   });
   it('uses five ADMIN destinations and places logout only in the account header', async () => {

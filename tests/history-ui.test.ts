@@ -137,15 +137,17 @@ describe('history list and navigation', () => {
     expect(screen.getAllByRole('navigation')).toHaveLength(1);
     expect(nav.className).toContain('fixed'); expect(nav.className).toContain('bottom-navigation');
     const row = nav.firstElementChild!; expect(row.className).not.toContain('flex-wrap');
-    expect([...row.children].map(node => node.textContent)).toEqual(['Scanner', 'Sesi', 'Riwayat']);
+    expect([...row.children].map(node => node.textContent)).toEqual(['Sesi', '', 'Riwayat']);
+    const fab = within(nav).getByRole('link', { name: 'Scanner' });
+    expect(fab.getAttribute('href')).toBe('/razia/scanner');
     for (const control of [...row.children]) {
-      expect(control.classList.contains('nav-link')).toBe(true);
+      const isFab = control === fab;
+      expect(control.classList.contains(isFab ? 'nav-fab' : 'nav-link')).toBe(true);
       expect(control.getAttribute('aria-current')).toBe(control.textContent === 'Riwayat' ? 'page' : null);
       expect(control.classList.contains('active')).toBe(control.textContent === 'Riwayat');
     }
     expect(nav.querySelectorAll('[aria-current="page"]')).toHaveLength(1);
     expect(nav.parentElement!.className).toContain('pb-[calc(6rem+env(safe-area-inset-bottom,0px))]');
-    expect(within(nav).getByRole('link', { name: 'Scanner' }).getAttribute('href')).toBe('/razia/scanner');
     expect(within(nav).queryByRole('button', { name: 'Keluar' })).toBeNull();
     expect(screen.getByRole('button', { name: 'Keluar' }).closest('header')).not.toBeNull();
     expect(within(nav).getByRole('link', { name: 'Riwayat' }).getAttribute('aria-current')).toBe('page');
