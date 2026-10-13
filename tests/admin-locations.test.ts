@@ -137,7 +137,7 @@ describe('admin locations CRUD', () => {
   await sql(`INSERT INTO raid_sessions(id,user_id,location_id,lane,status,started_at,closed_at) VALUES(?,?,?,?,?,unixepoch(),unixepoch())`,
    'cccccccc-cccc-4ccc-8ccc-cccccccccccc', IDS.admin, id, 'A', 'CLOSED');
   await call('DELETE', `${BASE}/${id}`, {}, tokens.admin);
-  const row = await db.prepare('SELECT location_id FROM raid_sessions WHERE id = ?').bind('cccccccc-cccc-4ccc-8ccc-cccccccccccc').first<{ location_id: string }>('location_id');
-  expect(row?.location_id).toBe(id);
+  const locationId = await db.prepare('SELECT location_id FROM raid_sessions WHERE id = ?').bind('cccccccc-cccc-4ccc-8ccc-cccccccccccc').first<string>('location_id');
+  expect(locationId).toBe(id);
  });
 });
