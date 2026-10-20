@@ -179,13 +179,13 @@ describe('ci-production', () => {
           stderr: '',
         };
       }
-      // Active baseline: six bindings (pre-secret transition state). Candidate: eight (secrets inherited).
+      // Active baseline and candidate both carry eight bindings (secrets inherited from the active version).
       if (cmd === `versions view ${ACTIVE_VERSION_ID} --name ${EXPECTED_WORKER} --json`) {
         return {
           status: 0,
           stdout: JSON.stringify({
             id: ACTIVE_VERSION_ID,
-            resources: { script_runtime: { compatibility_date: '2026-10-07' }, bindings: baseBindings() },
+            resources: { script_runtime: { compatibility_date: '2026-10-07' }, bindings: candidateBindings() },
           }),
           stderr: '',
         };
@@ -285,7 +285,7 @@ describe('ci-production', () => {
           success: true,
           result: {
             compatibility_date: '2026-10-07',
-            bindings: baseBindings(),
+            bindings: candidateBindings(),
           },
         };
       }
@@ -1566,13 +1566,31 @@ describe('ci-production', () => {
 
     describe('Potensi secret bindings', () => {
       const noActivation = () => expect(deps.runWrangler).not.toHaveBeenCalledWith(expect.arrayContaining(['deploy', `${NEW_VERSION_ID}@100%`]));
-      it('activates an eight-binding candidate over a six-binding active baseline (reviewed transition)', async () => {
+      it('activates only when the active baseline, settings and candidate all carry exactly eight bindings', async () => {
         await expect(ciDeploy(deps)).resolves.toBe(NEW_VERSION_ID);
         expect(deps.runWrangler).toHaveBeenCalledWith(['versions', 'view', ACTIVE_VERSION_ID, '--name', EXPECTED_WORKER, '--json']);
       });
-      it('activates when active baseline and settings already carry both secrets', async () => {
-        withActive(candidateBindings()); withSettings(candidateBindings());
-        await expect(ciDeploy(deps)).resolves.toBe(NEW_VERSION_ID);
+      it('rejects a six-binding active baseline (secrets lost) before upload; the transition baseline is closed', async () => {
+        withActive(baseBindings());
+        await expect(ciDeploy(deps)).rejects.toThrow('Baseline produksi wajib memuat tepat dua secret Potensi; secret hilang, review operator diperlukan.');
+        expect(deps.runWrangler).not.toHaveBeenCalledWith(expect.arrayContaining(['upload']));
+        noActivation();
+      });
+      it('rejects six-binding settings metadata before upload even when the active version carries eight', async () => {
+        withSettings(baseBindings());
+        await expect(ciDeploy(deps)).rejects.toThrow('Baseline produksi wajib memuat tepat dua secret Potensi; secret hilang, review operator diperlukan.');
+        expect(deps.runWrangler).not.toHaveBeenCalledWith(expect.arrayContaining(['upload']));
+        noActivation();
+      });
+      it('rejects a six-binding settings snapshot in the post-upload check without activating the candidate', async () => {
+        const original = deps.readPlatform;
+        deps.readPlatform = vi.fn().mockImplementation(async (t: ProductionTarget, path: string, phase: PlatformPhase) => {
+          if (phase === 'post_upload' && path === `/accounts/${t.account}/workers/scripts/${t.worker}/settings`) return { success: true, result: { compatibility_date: '2026-10-07', bindings: baseBindings() } };
+          return original(t, path, phase);
+        });
+        await expect(ciDeploy(deps)).rejects.toThrow('Baseline produksi wajib memuat tepat dua secret Potensi');
+        expect(deps.runWrangler).toHaveBeenCalledWith(expect.arrayContaining(['upload']));
+        noActivation();
       });
       it.each([
         ['only client id', () => [...baseBindings(), secretBindings()[0]]],

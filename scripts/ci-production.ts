@@ -244,11 +244,13 @@ function noFallback(deps: CiDeps): void {
 const EXPECTED_VARS: Record<string, string> = { PASSWORD_PBKDF2_ITERATIONS: '10', SESSION_TTL_SECONDS: '43200', RETENTION_POLICY: 'UNSET' };
 /** Worker runtime secrets for the Potensi NTT provider. Both or neither; never one. */
 export const POTENSI_SECRET_BINDINGS = ['POTENSI_ACCESS_CLIENT_ID', 'POTENSI_ACCESS_CLIENT_SECRET'] as const;
-const BASE_BINDING_COUNT = 6;
+/** Three resources, three runtime vars and both Potensi secrets. The six-binding transition baseline ended with release 874813b. */
+const EXPECTED_BINDING_COUNT = 8;
 /**
  * `active`   = bindings of the currently deployed version (from `versions view <active id>`).
  * `settings` = script settings metadata; may describe a staged version, so it is checked separately.
- * `candidate` = the uploaded version; it must already carry both secrets or it is never activated.
+ * `candidate` = the uploaded version; it is never activated without both secrets.
+ * Every phase requires exactly eight bindings: a baseline without the Potensi secrets is a regression, not a transition.
  */
 export type BindingPhase = 'active' | 'settings' | 'candidate';
 export function verifyBindings(b: unknown, compatDate: unknown, t: ProductionTarget, phase: BindingPhase): void {
@@ -272,10 +274,11 @@ export function verifyBindings(b: unknown, compatDate: unknown, t: ProductionTar
   }
   for (const name of [...Object.keys(resources), ...Object.keys(EXPECTED_VARS)]) if (!names.includes(name)) fail(Object.hasOwn(EXPECTED_VARS, name) ? 'Variables runtime berbeda; review terpisah diperlukan.' : 'CI tidak diizinkan mengubah resources/secrets/bindings.');
   const secrets = POTENSI_SECRET_BINDINGS.filter(name => names.includes(name)).length;
-  if (phase === 'candidate' && secrets !== POTENSI_SECRET_BINDINGS.length) fail('Kandidat upload wajib memuat tepat dua secret Potensi; aktivasi dibatalkan.');
-  // Reviewed transition: the active baseline is exactly six (before secrets) or exactly eight (both secrets).
-  if (secrets !== 0 && secrets !== POTENSI_SECRET_BINDINGS.length) fail('Secret Potensi parsial; review operator diperlukan.');
-  if (bindings.length !== BASE_BINDING_COUNT + secrets) fail('CI tidak diizinkan mengubah resources/secrets/bindings.');
+  if (secrets !== POTENSI_SECRET_BINDINGS.length) {
+    if (phase === 'candidate') fail('Kandidat upload wajib memuat tepat dua secret Potensi; aktivasi dibatalkan.');
+    fail(secrets === 0 ? 'Baseline produksi wajib memuat tepat dua secret Potensi; secret hilang, review operator diperlukan.' : 'Secret Potensi parsial; review operator diperlukan.');
+  }
+  if (bindings.length !== EXPECTED_BINDING_COUNT) fail('CI tidak diizinkan mengubah resources/secrets/bindings.');
 }
 type Active = {id:string;version:string};
 async function platform(deps: CiDeps,t:ProductionTarget,phase:PlatformPhase):Promise<Active> {
