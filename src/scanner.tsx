@@ -15,6 +15,11 @@ import { RaidHistoryPanel } from './history';
 
 /** Awalan pelat default: mempercepat pengetikan, tetap bisa dihapus manual via backspace. */
 export const NOPOL_PREFIX = 'DH';
+/**
+ * Panjang NOPOL ternormalisasi yang langsung dicari tanpa Enter (keputusan user 2026-10-20). Pelat 9 karakter
+ * (3 huruf belakang) ikut terpicu saat huruf ke-8 diketik; pelat yang lebih pendek tetap memakai Enter.
+ */
+export const AUTO_SEARCH_LENGTH = 8;
 
 type ScanState =
   | { kind: 'idle' }
@@ -113,18 +118,9 @@ export function Scanner() {
       apply({ kind: 'failure', nopol, error: failure instanceof ApiError ? failure : null });
     }
   }
-  function change(event: ChangeEvent<HTMLInputElement>) {
-    const next = event.target.value;
-    setValue(next);
-    cancel();
-    // Pencarian hanya dipicu via Enter; setiap edit langsung membersihkan hasil sebelumnya.
-    if (current.current.kind !== 'idle') apply({ kind: 'idle' });
-  }
-  function submit(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
+  // Shared by Enter and the 8-character auto search, so both paths keep the same guards.
+  function startLookup(nopol: string) {
     if (!enabled) return;
-    const nopol = normalizeNopol(value);
-    if (!nopol) return;
     const active = current.current;
     // Duplicate guard only while a request for this plate is in flight. After FOUND/NOT_FOUND a new Enter
     // for the same plate is a new upstream lookup (no cache; history keeps the raid's first snapshot).
@@ -132,6 +128,22 @@ export function Scanner() {
     // Tutup keyboard agar hasil terlihat utuh di layar.
     input.current?.blur();
     void lookup(nopol);
+  }
+  function change(event: ChangeEvent<HTMLInputElement>) {
+    const next = event.target.value;
+    setValue(next);
+    cancel();
+    // Setiap edit langsung membersihkan hasil sebelumnya.
+    if (current.current.kind !== 'idle') apply({ kind: 'idle' });
+    // NOPOL valid tepat 8 karakter (mis. DH1234AB) langsung dicari tanpa Enter; yang lebih pendek tetap lewat Enter.
+    const nopol = normalizeNopol(next);
+    if (nopol !== null && nopol.length === AUTO_SEARCH_LENGTH) startLookup(nopol);
+  }
+  function submit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const nopol = normalizeNopol(value);
+    if (!nopol) return;
+    startLookup(nopol);
   }
   function clear() {
     cancel(); setValue(NOPOL_PREFIX); apply({ kind: 'idle' });
@@ -156,7 +168,7 @@ export function Scanner() {
           placeholder="DH 1234 ZZ" aria-describedby={describedBy} aria-invalid={state.kind === 'input-error'}
           showClear={enabled && value !== '' && value !== NOPOL_PREFIX} onClear={clear}
         />
-        <p id="nopol-help" className="text-sm">Tekan Enter atau tombol Cari di keyboard untuk mencari.</p>
+        <p id="nopol-help" className="text-sm">NOPOL 8 karakter langsung dicari. Selain itu, tekan Enter atau tombol Cari di keyboard.</p>
       </form>
       {/* The live region stays mounted so screen readers reliably announce loading changes. */}
       <p id="lookup-status" role="status" className={state.kind === 'loading' ? 'flex min-h-5 items-center gap-2 text-sm' : 'sr-only'}>

@@ -96,6 +96,16 @@ describe('approved design foundation', () => {
     const prefix = css.slice(0, css.indexOf(reserve)).replace(/\/\*[\s\S]*?\*\//g, '');
     expect([...prefix].reduce((depth, char) => depth + (char === '{' ? 1 : char === '}' ? -1 : 0), 0)).toBe(0);
   });
+  it('removes the page gap above the sticky scanner header only, at every breakpoint', () => {
+    const rule = '.operational-layout:has(> main > section > .scanner-search) { padding-top: 0; }';
+    expect(css).toContain(rule);
+    // Unlayered and top-level, so it outranks both the layered mobile padding and the desktop .page-layout padding.
+    const prefix = css.slice(0, css.indexOf(rule)).replace(/\/\*[\s\S]*?\*\//g, '');
+    expect([...prefix].reduce((depth, char) => depth + (char === '{' ? 1 : char === '}' ? -1 : 0), 0)).toBe(0);
+    expect(css).toMatch(/\.scanner-search \{[^}]*sticky top-0/);
+    // Other pages keep their rounded, non-sticky header spacing.
+    expect(css).toContain('.operational-layout { gap: var(--space-4); padding-top: var(--space-3); }');
+  });
   it('attaches the scanner notch with concave shoulders and accessible dark contrast', () => {
     const notch = css.match(/\.session-bar\.scanner-notch \{([^}]+)\}/)![1]!;
     expect(notch).toContain('width: min(560px, calc(100% - 2 * var(--notch-radius)))');

@@ -271,7 +271,7 @@ describe('scanner shell and navigation', () => {
 });
 
 describe('scanner lookup flow', () => {
-  it('only issues valid lookups on Enter, never while typing', async () => {
+  it('plates shorter than 8 characters are only looked up on Enter, never while typing', async () => {
     const input = await ready();
     vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
     fireEvent.change(input, { target: { value: 'dh' } });
@@ -280,17 +280,81 @@ describe('scanner lookup flow', () => {
     fireEvent.change(input, { target: { value: 'dh 1234' } });
     await act(async () => { await vi.advanceTimersByTimeAsync(2000); });
     expect(lookupCalls()).toHaveLength(0);
-    fireEvent.change(input, { target: { value: 'dh 1234 zz' } });
+    fireEvent.change(input, { target: { value: 'dh 1234 z' } });
     await act(async () => { await vi.advanceTimersByTimeAsync(2000); });
     expect(lookupCalls()).toHaveLength(0);
     fireEvent.submit(input.form!);
     expect(lookupCalls()).toHaveLength(1);
-    expect(lookupCalls()[0]![1]!.body).toBe('{"nopol":"DH1234ZZ"}');
+    expect(lookupCalls()[0]![1]!.body).toBe('{"nopol":"DH1234Z"}');
     vi.useRealTimers();
-    await screen.findByRole('heading', { name: 'DH1234ZZ' });
+    await screen.findByRole('heading', { name: 'DH1234Z' });
     expect(lookupCalls()).toHaveLength(1);
   });
-  it.each(['DH-1234', 'DH.1234ZZ', 'DHA1234', 'DH12345', 'DH1234ZZZZ', '1234'])('ignores invalid %s silently without request, including Enter', async value => {
+  describe('automatic search at exactly 8 characters', () => {
+    it('typing a complete 8-character plate looks it up once without Enter and closes the keyboard', async () => {
+      await ready();
+      const user = userEvent.setup();
+      await user.clear(field());
+      await user.type(field(), 'DH1234A');
+      expect(lookupCalls()).toHaveLength(0);
+      expect(document.activeElement).toBe(field());
+      await user.type(field(), 'B');
+      expect(lookupCalls()).toHaveLength(1);
+      expect(lookupCalls()[0]![1]!.body).toBe('{"nopol":"DH1234AB"}');
+      expect(document.activeElement).not.toBe(field());
+      await screen.findByRole('heading', { name: 'DH1234AB' });
+      expect(lookupCalls()).toHaveLength(1);
+    });
+    it('normalizes spaces and lowercase before counting, so a pasted "dh 1234 ab" searches immediately', async () => {
+      const input = await ready();
+      fireEvent.change(input, { target: { value: 'dh 1234 ab' } });
+      expect(lookupCalls()).toHaveLength(1);
+      expect(lookupCalls()[0]![1]!.body).toBe('{"nopol":"DH1234AB"}');
+      expect(document.activeElement).not.toBe(input);
+    });
+    it.each(['DH12345A', 'DHA12345', 'DH-1234A', '1234ABCD'])('never auto-searches an invalid 8-character value %s', async value => {
+      const input = await ready();
+      fireEvent.change(input, { target: { value } });
+      fireEvent.submit(input.form!);
+      expect(lookupCalls()).toHaveLength(0);
+    });
+    it('a pending auto search is not duplicated by Enter, and a later edit starts a fresh lookup', async () => {
+      const responses: ReturnType<typeof deferred<Response>>[] = [];
+      const input = await ready(auth(), () => { const next = deferred<Response>(); responses.push(next); return next.promise; });
+      fireEvent.change(input, { target: { value: 'DH1234AB' } });
+      fireEvent.submit(input.form!); fireEvent.submit(input.form!);
+      expect(lookupCalls()).toHaveLength(1);
+      fireEvent.change(input, { target: { value: 'DH1234A' } });
+      expect(lookupSignals[0]!.aborted).toBe(true);
+      fireEvent.change(input, { target: { value: 'DH1234AC' } });
+      expect(lookupCalls()).toHaveLength(2);
+      expect(lookupCalls()[1]![1]!.body).toBe('{"nopol":"DH1234AC"}');
+      await act(async () => responses[1]!.resolve(found('DH1234AC')));
+      await screen.findByRole('heading', { name: 'DH1234AC' });
+    });
+    it('retyping the same complete plate after a result is one new lookup, like Enter', async () => {
+      const input = await ready();
+      fireEvent.change(input, { target: { value: 'DH1234AB' } });
+      await screen.findByRole('heading', { name: 'DH1234AB' });
+      fireEvent.change(input, { target: { value: 'DH1234A' } });
+      fireEvent.change(input, { target: { value: 'DH1234AB' } });
+      expect(lookupCalls()).toHaveLength(2);
+    });
+    it('a 9-character plate triggers at its 8th character (documented limitation of the 8-character rule)', async () => {
+      await ready();
+      const user = userEvent.setup();
+      await user.clear(field());
+      await user.type(field(), 'DH1234AB');
+      expect(lookupCalls()).toHaveLength(1);
+      expect(lookupCalls()[0]![1]!.body).toBe('{"nopol":"DH1234AB"}');
+    });
+    it('does not auto-search without an active raid', async () => {
+      const input = await ready(auth(null));
+      fireEvent.change(input, { target: { value: 'DH1234AB' } });
+      expect(lookupCalls()).toHaveLength(0);
+    });
+  });
+  it.each(['DH-1234', 'DH.1234ZZ', 'DHA1234', 'DH12345', 'DH12345ZZ', '1234'])('ignores invalid %s silently without request, including Enter', async value => {
     await ready();
     await search(value);
     expect(screen.queryByText(/Format NOPOL belum valid/)).toBeNull();
@@ -361,16 +425,16 @@ describe('scanner lookup flow', () => {
     const input = await ready(auth(), () => pending.promise);
     const status = lookupStatus();
     expect(status.className).toBe('sr-only'); expect(status.textContent).toBe('');
-    fireEvent.change(input, { target: { value: 'DH1234ZZ' } });
+    fireEvent.change(input, { target: { value: 'DH1234Z' } });
     expect(lookupStatus()).toBe(status); expect(status.className).toBe('sr-only'); expect(status.textContent).toBe('');
     expect(lookupCalls()).toHaveLength(0);
     fireEvent.submit(input.form!);
-    expect(lookupStatus()).toBe(status); expect(status.textContent).toContain('Mencari data DH1234ZZ');
+    expect(lookupStatus()).toBe(status); expect(status.textContent).toContain('Mencari data DH1234Z');
     expect(status.classList.contains('sr-only')).toBe(false); expect(status.classList.contains('min-h-5')).toBe(true);
     expect(status.hasAttribute('hidden')).toBe(false); expect(status.getAttribute('aria-hidden')).toBeNull();
     expect(input.disabled).toBe(false); expect(lookupCalls()).toHaveLength(1);
-    await act(async () => pending.resolve(found()));
-    await screen.findByRole('heading', { name: 'DH1234ZZ' });
+    await act(async () => pending.resolve(found('DH1234Z')));
+    await screen.findByRole('heading', { name: 'DH1234Z' });
     expect(lookupStatus()).toBe(status); expect(status.textContent).toBe(''); expect(status.className).toBe('sr-only');
   });
   it('rejects a lookup body claiming CACHE provenance as a failure, never a rendered result', async () => {
@@ -517,9 +581,10 @@ describe('scanner lookup flow', () => {
   });
   it('clears result even for a whitespace edit and resets with X', async () => {
     await ready();
-    await search('DH1234ZZ');
+    // A 7-character plate: whitespace edits never auto-search, so this isolates the clearing behaviour.
+    await search('DH1234Z');
     await screen.findByRole('article');
-    fireEvent.change(field(), { target: { value: 'DH1234ZZ ' } });
+    fireEvent.change(field(), { target: { value: 'DH1234Z ' } });
     expect(screen.queryByRole('article')).toBeNull();
     fireEvent.click(screen.getByRole('button', { name: 'Hapus NOPOL' }));
     vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });

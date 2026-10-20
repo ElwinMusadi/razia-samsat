@@ -344,6 +344,9 @@
   }
 }
 
+/* Scanner: the sticky search header is flush with the top edge at every scroll position, with no page gap above it.
+   Unlayered so it wins over the mobile layout padding and the desktop .page-layout padding alike. */
+.operational-layout:has(> main > section > .scanner-search) { padding-top: 0; }
 /* Scanner-only notch: an opaque session bar with transparent concave shoulders. */
 .scanner-search:has(.scanner-notch) { padding-top: 0; }
 .session-bar.scanner-notch {
