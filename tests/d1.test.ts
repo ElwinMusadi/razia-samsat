@@ -18,12 +18,12 @@ beforeEach(async () => {
 afterAll(async () => { await mf?.dispose(); });
 
 describe('actual workerd D1 foundation migration', () => {
-  it('has exactly six application tables, no owner/full-record fields and foreign keys enabled', async () => {
+  it('has exactly seven application tables, no owner/full-record fields and foreign keys enabled', async () => {
     const tables = await db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' AND name NOT LIKE '_cf_%' ORDER BY name").all<{name:string}>();
-    expect(tables.results.map((row: {name: string}) => row.name)).toEqual(['admin_audit_logs','check_logs','locations','raid_sessions','user_sessions','users']);
+    expect(tables.results.map((row: {name: string}) => row.name)).toEqual(['admin_audit_logs','check_logs','locations','raid_sessions','user_sessions','users','vehicle_source_settings']);
     expect(await db.prepare('PRAGMA foreign_keys').first<number>('foreign_keys')).toBe(1);
     const columns = await db.prepare('PRAGMA table_info(check_logs)').all<{name:string}>();
-    expect(columns.results.map((row: {name: string}) => row.name)).toEqual(['id','raid_session_id','user_id','idempotency_key','nopol','outcome','tax_status','stnk_status','source','checked_at','vehicle_brand','vehicle_type','vehicle_color']);
+    expect(columns.results.map((row: {name: string}) => row.name)).toEqual(['id','raid_session_id','user_id','idempotency_key','nopol','outcome','tax_status','stnk_status','source','checked_at','vehicle_brand','vehicle_type','vehicle_color','provider']);
   });
   it('enforces role, active flags, username uniqueness and basic timestamps', async () => {
     await expect(sql("UPDATE users SET role='CLIENT' WHERE id='officer'")).rejects.toThrow();

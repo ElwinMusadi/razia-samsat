@@ -4,42 +4,52 @@ import { api, ApiError, formatCalendarDate, formatInstantWita, normalizeNopol, p
 import { normalizeNopol as serverNormalizeNopol } from '../shared/nopol';
 
 const vehicle = { nopol: 'DH1234ZZ', owner_name: 'Synthetic Owner', brand: 'Synthetic Brand', type: 'Synthetic Type', color: 'Synthetic Color', tax_due_date: '2026-10-07', stnk_due_date: null, tax_status: 'EXPIRED', stnk_status: 'UNKNOWN' };
-const found = { outcome: 'FOUND', vehicle, source: 'LIVE', fetched_at: '2026-10-07T01:02:03.004Z', evaluated_on: '2026-10-07', request_id: 'req-synthetic' };
+const found = { outcome: 'FOUND', vehicle, source: 'LIVE', provider: 'BPAD', fetched_at: '2026-10-07T01:02:03.004Z', snapshot_synced_at: null, evaluated_on: '2026-10-07', request_id: 'req-synthetic' };
+const potensi = { ...found, provider: 'POTENSI_NTT', snapshot_synced_at: '2026-10-05T16:00:00.000Z', vehicle: { ...vehicle, owner_name: null, brand: null } };
 const sensitive = { NIK: 'SENSITIVE_NIK', Alamat: 'SENSITIVE_ADDRESS', NoRangka: 'SENSITIVE_CHASSIS', NoMesin: 'SENSITIVE_ENGINE', NoBPKB: 'SENSITIVE_BPKB', NOPOL_EKS: 'SENSITIVE_EKS', Kohir: 'SENSITIVE_KOHIR' };
 const json = (value: unknown, status = 200, headers: Record<string, string> = {}) => new Response(JSON.stringify(value), { status, headers: { 'Content-Type': 'application/json', ...headers } });
 afterEach(() => { vi.useRealTimers(); vi.unstubAllGlobals(); });
 
 describe('vehicle lookup parser', () => {
-  it('accepts FOUND and NOT_FOUND contract bodies exactly', () => {
+  it('accepts FOUND and NOT_FOUND contract bodies exactly, for both providers', () => {
     expect(parseVehicleLookup(found, 'DH1234ZZ')).toEqual(found);
-    expect(parseVehicleLookup({ ...found, source: 'CACHE', vehicle: { ...vehicle, stnk_due_date: '2027-01-31', stnk_status: 'ACTIVE' } }, 'DH1234ZZ')).toMatchObject({ source: 'CACHE', vehicle: { stnk_status: 'ACTIVE' } });
-    expect(parseVehicleLookup({ outcome: 'NOT_FOUND', request_id: 'req-nf' }, 'DH1234ZZ')).toEqual({ outcome: 'NOT_FOUND', request_id: 'req-nf' });
+    expect(parseVehicleLookup({ ...found, vehicle: { ...vehicle, stnk_due_date: '2027-01-31', stnk_status: 'ACTIVE' } }, 'DH1234ZZ')).toMatchObject({ source: 'LIVE', provider: 'BPAD', vehicle: { stnk_status: 'ACTIVE' } });
+    expect(parseVehicleLookup(potensi, 'DH1234ZZ')).toEqual(potensi);
+    expect(parseVehicleLookup({ outcome: 'NOT_FOUND', provider: 'BPAD', request_id: 'req-nf' }, 'DH1234ZZ')).toEqual({ outcome: 'NOT_FOUND', provider: 'BPAD', request_id: 'req-nf' });
+    expect(parseVehicleLookup({ outcome: 'NOT_FOUND', provider: 'POTENSI_NTT', request_id: 'req-nf' }, 'DH1234ZZ')).toEqual({ outcome: 'NOT_FOUND', provider: 'POTENSI_NTT', request_id: 'req-nf' });
   });
-  it.each(['LIVE', 'CACHE'] as const)('retains %s metadata in the parser and request result despite its removal from scanner UI', async source => {
-    const body = { ...found, source };
-    expect(parseVehicleLookup(body, 'DH1234ZZ')).toEqual(body);
-    const fetcher = vi.fn<typeof fetch>().mockResolvedValue(json(body));
+  it('retains LIVE/provider/snapshot metadata in the parser and request result', async () => {
+    const fetcher = vi.fn<typeof fetch>().mockResolvedValue(json(potensi));
     vi.stubGlobal('fetch', fetcher);
     const parsed = await api.lookup('DH1234ZZ');
-    expect(parsed).toEqual(body);
-    expect(parsed).toMatchObject({ source, fetched_at: found.fetched_at, evaluated_on: found.evaluated_on, request_id: found.request_id });
+    expect(parsed).toEqual(potensi);
+    expect(parsed).toMatchObject({ source: 'LIVE', provider: 'POTENSI_NTT', snapshot_synced_at: potensi.snapshot_synced_at, fetched_at: found.fetched_at, evaluated_on: found.evaluated_on, request_id: found.request_id });
     expect(fetcher).toHaveBeenCalledTimes(1);
+  });
+  it('explicit null identity is only valid as null; empty, missing or wrong-typed values stay invalid', () => {
+    expect(parseVehicleLookup({ ...found, vehicle: { ...vehicle, owner_name: null, brand: null, type: null, color: null } }, 'DH1234ZZ')).toMatchObject({ vehicle: { owner_name: null, brand: null, type: null, color: null } });
+    for (const patch of [{ owner_name: undefined }, { owner_name: '' }, { brand: 0 }, { type: {} }, { color: ' ' }]) {
+      expect(() => parseVehicleLookup({ ...found, vehicle: { ...vehicle, ...patch } }, 'DH1234ZZ')).toThrow(expect.objectContaining({ code: 'INVALID_RESPONSE' }));
+    }
   });
   it('projects only allowlisted fields and drops sensitive extras', () => {
     const parsed = parseVehicleLookup({ ...found, ...sensitive, raw: sensitive, vehicle: { ...vehicle, ...sensitive } }, 'DH1234ZZ');
     expect(parsed).toEqual(found);
     expect(JSON.stringify(parsed)).not.toContain('SENSITIVE');
-    const notFound = parseVehicleLookup({ outcome: 'NOT_FOUND', request_id: 'req-nf', vehicle, message: 'SENSITIVE provider text' }, 'DH1234ZZ');
-    expect(notFound).toEqual({ outcome: 'NOT_FOUND', request_id: 'req-nf' });
+    const notFound = parseVehicleLookup({ outcome: 'NOT_FOUND', provider: 'POTENSI_NTT', request_id: 'req-nf', vehicle, message: 'SENSITIVE provider text' }, 'DH1234ZZ');
+    expect(notFound).toEqual({ outcome: 'NOT_FOUND', provider: 'POTENSI_NTT', request_id: 'req-nf' });
   });
   it.each([
     ['null', null], ['array', []], ['empty', {}], ['unknown outcome', { ...found, outcome: 'MAYBE' }], ['missing request id', { outcome: 'NOT_FOUND' }],
     ['empty request id', { ...found, request_id: '' }], ['missing vehicle', { ...found, vehicle: undefined }], ['vehicle array', { ...found, vehicle: [] }],
-    ['source', { ...found, source: 'BPAD' }], ['fetched_at no ms', { ...found, fetched_at: '2026-10-07T01:02:03Z' }], ['fetched_at offset', { ...found, fetched_at: '2026-10-07T09:02:03.004+08:00' }],
+    ['source', { ...found, source: 'BPAD' }], ['source cache', { ...found, source: 'CACHE' }], ['provider missing', { ...found, provider: undefined }], ['provider unknown', { ...found, provider: 'NJKB' }],
+    ['NOT_FOUND without provider', { outcome: 'NOT_FOUND', request_id: 'req-nf' }], ['snapshot missing', { ...found, snapshot_synced_at: undefined }], ['BPAD with snapshot', { ...found, snapshot_synced_at: '2026-10-05T16:00:00.000Z' }],
+    ['POTENSI without snapshot', { ...potensi, snapshot_synced_at: null }], ['POTENSI snapshot no ms', { ...potensi, snapshot_synced_at: '2026-10-05T16:00:00Z' }],
+    ['fetched_at no ms', { ...found, fetched_at: '2026-10-07T01:02:03Z' }], ['fetched_at offset', { ...found, fetched_at: '2026-10-07T09:02:03.004+08:00' }],
     ['fetched_at invalid calendar', { ...found, fetched_at: '2026-02-30T01:02:03.004Z' }], ['evaluated_on', { ...found, evaluated_on: '07/10/2026' }],
     ['tax_status enum', { ...found, vehicle: { ...vehicle, tax_status: 'MATI' } }], ['stnk_status enum', { ...found, vehicle: { ...vehicle, stnk_status: 'active' } }],
     ['status missing', { ...found, vehicle: { ...vehicle, tax_status: undefined } }], ['due date format', { ...found, vehicle: { ...vehicle, tax_due_date: '07/10/2026' } }],
-    ['due date calendar', { ...found, vehicle: { ...vehicle, tax_due_date: '2026-02-29' } }], ['brand null', { ...found, vehicle: { ...vehicle, brand: null } }],
+    ['due date calendar', { ...found, vehicle: { ...vehicle, tax_due_date: '2026-02-29' } }], ['brand missing', { ...found, vehicle: { ...vehicle, brand: undefined } }],
     ['owner empty', { ...found, vehicle: { ...vehicle, owner_name: '' } }], ['color untrimmed', { ...found, vehicle: { ...vehicle, color: ' Merah' } }],
     ['type too long', { ...found, vehicle: { ...vehicle, type: 'x'.repeat(201) } }], ['owner control char', { ...found, vehicle: { ...vehicle, owner_name: 'a\nb' } }],
     ['nopol mismatch', { ...found, vehicle: { ...vehicle, nopol: 'DH9999ZZ' } }], ['nopol lowercase', { ...found, vehicle: { ...vehicle, nopol: 'dh1234zz' } }],
@@ -87,7 +97,7 @@ describe('vehicle lookup requests', () => {
   });
   it.each([
     [400, 'INVALID_INPUT'], [401, 'AUTHENTICATION_ERROR'], [403, 'CSRF_REJECTED'], [403, 'AUTHORIZATION_ERROR'], [409, 'RAID_SESSION_REQUIRED'], [413, 'PAYLOAD_TOO_LARGE'],
-    [500, 'INTERNAL_ERROR'], [502, 'UPSTREAM_ERROR'], [502, 'UPSTREAM_MALFORMED'], [502, 'UPSTREAM_NETWORK'], [503, 'UPSTREAM_BUSY'], [504, 'TIMEOUT'],
+    [500, 'INTERNAL_ERROR'], [502, 'UPSTREAM_ERROR'], [502, 'UPSTREAM_MALFORMED'], [502, 'UPSTREAM_NETWORK'], [502, 'UPSTREAM_FORBIDDEN'], [503, 'UPSTREAM_BUSY'], [503, 'VEHICLE_SOURCE_UNAVAILABLE'], [504, 'TIMEOUT'],
   ] as const)('preserves %i %s error envelope', async (status, code) => {
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue(json({ error: { code, message: 'Pesan sintetis', request_id: 'req-error' } }, status)));
     await expect(api.lookup('DH1234ZZ')).rejects.toMatchObject({ status, code, message: 'Pesan sintetis', requestId: 'req-error' });

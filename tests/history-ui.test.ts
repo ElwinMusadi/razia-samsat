@@ -16,13 +16,13 @@ const raid: HistoryRaid = { id: RAID, location, lane: 'arah pusat kota', status:
 const closed: HistoryRaid = { ...raid, id: uuid(4), lane: 'jalur barat', status: 'CLOSED', closed_at: raid.started_at + 60 };
 const cursor = 'opaqueCursor_Az09-';
 const auth = (active = true, role: 'ADMIN' | 'OFFICER' = 'OFFICER'): AuthState => ({ user: { id: uuid(3), username: 'synthetic.reader', role }, session: { expires_at: Math.floor(Date.now() / 1000) + 3600 }, active_raid_session: active ? raid : null });
-const check = (n: number, tax: HistoryCheck['tax_status'] = 'ACTIVE'): HistoryCheck => ({ id: uuid(100 + n), nopol: `DH${n}ZZ`, outcome: tax === null ? 'NOT_FOUND' : 'FOUND', tax_status: tax, stnk_status: tax === null ? null : 'UNKNOWN', source: tax === null ? 'LIVE' : 'CACHE', checked_at: raid.started_at + n, vehicle_brand: tax === null ? null : 'Brand', vehicle_type: tax === null ? null : 'Type', vehicle_color: tax === null ? null : 'Color' });
+const check = (n: number, tax: HistoryCheck['tax_status'] = 'ACTIVE'): HistoryCheck => ({ id: uuid(100 + n), nopol: `DH${n}ZZ`, outcome: tax === null ? 'NOT_FOUND' : 'FOUND', tax_status: tax, stnk_status: tax === null ? null : 'UNKNOWN', source: tax === null ? 'LIVE' : 'CACHE', provider: null, checked_at: raid.started_at + n, vehicle_brand: tax === null ? null : 'Brand', vehicle_type: tax === null ? null : 'Type', vehicle_color: tax === null ? null : 'Color' });
 const zeros: HistorySummary = { total_checks: 0, found: 0, not_found: 0, tax_active: 0, tax_expired: 0, tax_unknown: 0 };
 const summary: HistorySummary = { total_checks: 4, found: 3, not_found: 1, tax_active: 1, tax_expired: 1, tax_unknown: 1 };
 const json = (body: unknown, status = 200, headers: Record<string, string> = {}) => new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json', ...headers } });
 const failure = (status: number, code = 'INTERNAL_ERROR') => json({ error: { code, message: 'Pesan layanan sintetis', request_id: 'req-history' } }, status, { 'X-Request-ID': 'req-history' });
 const recap = (metrics = summary, activeRaid = raid) => json({ raid_session: activeRaid, summary: metrics });
-const found = (nopol: string) => json({ outcome: 'FOUND', vehicle: { nopol, owner_name: 'Pemilik Sintetis', brand: 'Merek Sintetis', type: 'Tipe Sintetis', color: 'Warna Sintetis', tax_due_date: '2000-01-01', stnk_due_date: null, tax_status: 'ACTIVE', stnk_status: 'UNKNOWN' }, source: 'LIVE', fetched_at: '2026-10-07T01:00:00.000Z', evaluated_on: '2026-10-07', request_id: 'req-found' });
+const found = (nopol: string) => json({ outcome: 'FOUND', vehicle: { nopol, owner_name: 'Pemilik Sintetis', brand: 'Merek Sintetis', type: 'Tipe Sintetis', color: 'Warna Sintetis', tax_due_date: '2000-01-01', stnk_due_date: null, tax_status: 'ACTIVE', stnk_status: 'UNKNOWN' }, source: 'LIVE', provider: 'BPAD', fetched_at: '2026-10-07T01:00:00.000Z', snapshot_synced_at: null, evaluated_on: '2026-10-07', request_id: 'req-found' });
 function deferred<T>() { let resolve!: (value: T) => void; const promise = new Promise<T>(accept => { resolve = accept; }); return { promise, resolve }; }
 let fetchMock: ReturnType<typeof vi.fn<typeof fetch>>;
 function Path() { return createElement('output', { 'data-testid': 'path' }, useLocation().pathname); }
@@ -168,6 +168,14 @@ describe('history detail', () => {
     expect(nf.textContent).toContain('Tidak ditemukan');
     expect(screen.getByText(/Status adalah snapshot saat pengecekan, bukan status terkini/)).toBeTruthy();
     expect(screen.getByRole('link', { name: /Kembali ke riwayat/ }).getAttribute('href')).toBe('/history');
+  });
+  it('labels provider provenance per row and keeps legacy rows as recorded', async () => {
+    routes(path => path === summaryUrl ? recap() : json({ checks: [{ ...check(1), provider: 'BPAD' }, { ...check(2, 'EXPIRED'), provider: 'POTENSI_NTT', source: 'LIVE' }, check(3, 'UNKNOWN'), check(4, null)], next_cursor: null })); mount(detail);
+    const list = await screen.findByRole('list', { name: 'Daftar pengecekan' });
+    const rows = [...list.children].map(row => row.textContent ?? '');
+    expect(rows[0]).toContain('SumberBPAD'); expect(rows[1]).toContain('SumberPotensi NTT');
+    expect(rows[2]).toContain('SumberCache'); expect(rows[3]).toContain('SumberLangsung');
+    expect(list.textContent).not.toContain('POTENSI_NTT');
     expect(document.title).toBe('Detail sesi — Razia SAMSAT');
     expect(within(screen.getByRole('navigation')).getByRole('link', { name: 'Riwayat' }).getAttribute('aria-current')).toBe('page');
   });
@@ -283,7 +291,7 @@ describe('scanner history panel isolation', () => {
     expect(historyCalls().filter(([path]) => path === `${checksUrl}?limit=10`)).toHaveLength(2);
   });
   it.each(['FOUND', 'NOT_FOUND'] as const)('refreshes once after displayed %s, not on repeated Enter or X', async outcome => {
-    scannerRoutes((path, init) => path === summaryUrl ? recap(zeros) : path === `${checksUrl}?limit=10` ? json({ checks: [], next_cursor: null }) : outcome === 'FOUND' ? found(JSON.parse(String(init.body)).nopol) : json({ outcome: 'NOT_FOUND', request_id: 'req-nf' }));
+    scannerRoutes((path, init) => path === summaryUrl ? recap(zeros) : path === `${checksUrl}?limit=10` ? json({ checks: [], next_cursor: null }) : outcome === 'FOUND' ? found(JSON.parse(String(init.body)).nopol) : json({ outcome: 'NOT_FOUND', provider: 'BPAD', request_id: 'req-nf' }));
     mount('/razia/scanner'); await screen.findByText('Belum ada pengecekan tercatat pada sesi ini.');
     await lookup();
     if (outcome === 'FOUND') await screen.findByRole('heading', { name: 'DH1234ZZ' }); else await screen.findByText('Data kendaraan tidak ditemukan');

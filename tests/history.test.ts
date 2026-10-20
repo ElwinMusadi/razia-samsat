@@ -149,7 +149,7 @@ describe('history authorization and exact public contracts with actual workerd D
     await check(1); const response = await get(paths[1]);
     expect(response.status).toBe(200); expect(response.headers.get('x-request-id')).toMatch(/^[0-9a-f-]{36}$/);
     expect(response.headers.get('cache-control')).toBe('no-store');
-    expect(await response.json()).toEqual({ checks: [{ id: uuid(1001), nopol: 'DH1ZZ', outcome: 'FOUND', tax_status: 'ACTIVE', stnk_status: 'UNKNOWN', source: 'CACHE', checked_at: TIME, vehicle_brand: null, vehicle_type: null, vehicle_color: null }], next_cursor: null });
+    expect(await response.json()).toEqual({ checks: [{ id: uuid(1001), nopol: 'DH1ZZ', outcome: 'FOUND', tax_status: 'ACTIVE', stnk_status: 'UNKNOWN', source: 'CACHE', provider: null, checked_at: TIME, vehicle_brand: null, vehicle_type: null, vehicle_color: null }], next_cursor: null });
     const raids = await list(); expect(Object.keys(raids).sort()).toEqual(['next_cursor', 'raid_sessions']);
     expect(Object.keys(raids.raid_sessions[0]).sort()).toEqual(['closed_at', 'id', 'lane', 'location', 'owner', 'started_at', 'status']);
     expect(JSON.stringify(raids)).not.toMatch(/password|token|owner_name|idempotency_key|user_id/);

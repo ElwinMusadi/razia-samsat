@@ -62,6 +62,19 @@ describe('ci-production', () => {
   function sha256(content: string) {
     return createHash('sha256').update(content).digest('hex');
   }
+  const baseBindings = () => [
+    { name: 'DB', type: 'd1', id: target.database },
+    { name: 'VEHICLE_CACHE', type: 'kv_namespace', namespace_id: target.namespace },
+    { name: 'ASSETS', type: 'assets' },
+    { name: 'PASSWORD_PBKDF2_ITERATIONS', type: 'plain_text', text: '10' },
+    { name: 'SESSION_TTL_SECONDS', type: 'plain_text', text: '43200' },
+    { name: 'RETENTION_POLICY', type: 'plain_text', text: 'UNSET' },
+  ];
+  const secretBindings = () => [
+    { name: 'POTENSI_ACCESS_CLIENT_ID', type: 'secret_text' },
+    { name: 'POTENSI_ACCESS_CLIENT_SECRET', type: 'secret_text' },
+  ];
+  const candidateBindings = () => [...baseBindings(), ...secretBindings()];
 
   beforeEach(() => {
     tempRoot = mkdtempSync(join(tmpdir(), 'razia-ci-test-'));
@@ -166,6 +179,17 @@ describe('ci-production', () => {
           stderr: '',
         };
       }
+      // Active baseline: six bindings (pre-secret transition state). Candidate: eight (secrets inherited).
+      if (cmd === `versions view ${ACTIVE_VERSION_ID} --name ${EXPECTED_WORKER} --json`) {
+        return {
+          status: 0,
+          stdout: JSON.stringify({
+            id: ACTIVE_VERSION_ID,
+            resources: { script_runtime: { compatibility_date: '2026-10-07' }, bindings: baseBindings() },
+          }),
+          stderr: '',
+        };
+      }
       if (cmd === `versions view ${NEW_VERSION_ID} --name ${EXPECTED_WORKER} --json`) {
         return {
           status: 0,
@@ -177,14 +201,7 @@ describe('ci-production', () => {
             },
             resources: {
               script_runtime: { compatibility_date: '2026-10-07' },
-              bindings: [
-                { name: 'DB', type: 'd1', id: target.database },
-                { name: 'VEHICLE_CACHE', type: 'kv_namespace', namespace_id: target.namespace },
-                { name: 'ASSETS', type: 'assets' },
-                { name: 'PASSWORD_PBKDF2_ITERATIONS', type: 'plain_text', text: '10' },
-                { name: 'SESSION_TTL_SECONDS', type: 'plain_text', text: '43200' },
-                { name: 'RETENTION_POLICY', type: 'plain_text', text: 'UNSET' },
-              ]
+              bindings: candidateBindings(),
             }
           }),
           stderr: '',
@@ -268,14 +285,7 @@ describe('ci-production', () => {
           success: true,
           result: {
             compatibility_date: '2026-10-07',
-            bindings: [
-              { name: 'DB', type: 'd1', id: target.database },
-              { name: 'VEHICLE_CACHE', type: 'kv_namespace', namespace_id: target.namespace },
-              { name: 'ASSETS', type: 'assets' },
-              { name: 'PASSWORD_PBKDF2_ITERATIONS', type: 'plain_text', text: '10' },
-              { name: 'SESSION_TTL_SECONDS', type: 'plain_text', text: '43200' },
-              { name: 'RETENTION_POLICY', type: 'plain_text', text: 'UNSET' },
-            ],
+            bindings: baseBindings(),
           },
         };
       }
@@ -1495,14 +1505,27 @@ describe('ci-production', () => {
       stderr: '',
     });
 
-    const validBindings = [
-      { name: 'DB', type: 'd1', id: MIGRATION_DATABASE_ID },
-      { name: 'VEHICLE_CACHE', type: 'kv_namespace', namespace_id: CI_NAMESPACE },
-      { name: 'ASSETS', type: 'assets' },
-      { name: 'PASSWORD_PBKDF2_ITERATIONS', type: 'plain_text', text: '10' },
-      { name: 'SESSION_TTL_SECONDS', type: 'plain_text', text: '43200' },
-      { name: 'RETENTION_POLICY', type: 'plain_text', text: 'UNSET' },
-    ];
+    const validBindings = candidateBindings();
+    const viewFor = (versionId: string, bindings: unknown[], compat = '2026-10-07') => ({
+      status: 0,
+      stdout: JSON.stringify({ id: versionId, resources: { script_runtime: { compatibility_date: compat }, bindings } }),
+      stderr: '',
+    });
+    const withActive = (bindings: unknown[], compat?: string) => {
+      const originalRunWrangler = deps.runWrangler;
+      deps.runWrangler = vi.fn().mockImplementation(async (args: string[]) => {
+        if (args.join(' ') === `versions view ${ACTIVE_VERSION_ID} --name ${EXPECTED_WORKER} --json`) return viewFor(ACTIVE_VERSION_ID, bindings, compat);
+        return originalRunWrangler(args);
+      });
+      return originalRunWrangler;
+    };
+    const withSettings = (bindings: unknown[]) => {
+      const originalReadPlatform = deps.readPlatform;
+      deps.readPlatform = vi.fn().mockImplementation(async (t: ProductionTarget, path: string, phase: PlatformPhase) => {
+        if (path === `/accounts/${t.account}/workers/scripts/${t.worker}/settings`) return { success: true, result: { compatibility_date: '2026-10-07', bindings } };
+        return originalReadPlatform(t, path, phase);
+      });
+    };
 
     it('fails if uploaded version has missing bindings before deployment', async () => {
       const originalRunWrangler = deps.runWrangler;
@@ -1520,7 +1543,7 @@ describe('ci-production', () => {
       const originalRunWrangler = deps.runWrangler;
       deps.runWrangler = vi.fn().mockImplementation(async (args: string[]) => {
         if (args.join(' ') === `versions view ${NEW_VERSION_ID} --name ${EXPECTED_WORKER} --json`) {
-          const badBindings = [...validBindings];
+          const badBindings: Record<string, unknown>[] = [...validBindings];
           badBindings[0] = { name: 'DB', type: 'd1', id: 'wrong-id' };
           return createViewResult(badBindings);
         }
@@ -1541,6 +1564,81 @@ describe('ci-production', () => {
       await expect(ciDeploy(deps)).rejects.toThrow('CI tidak diizinkan mengubah resources/secrets/bindings.');
     });
 
+    describe('Potensi secret bindings', () => {
+      const noActivation = () => expect(deps.runWrangler).not.toHaveBeenCalledWith(expect.arrayContaining(['deploy', `${NEW_VERSION_ID}@100%`]));
+      it('activates an eight-binding candidate over a six-binding active baseline (reviewed transition)', async () => {
+        await expect(ciDeploy(deps)).resolves.toBe(NEW_VERSION_ID);
+        expect(deps.runWrangler).toHaveBeenCalledWith(['versions', 'view', ACTIVE_VERSION_ID, '--name', EXPECTED_WORKER, '--json']);
+      });
+      it('activates when active baseline and settings already carry both secrets', async () => {
+        withActive(candidateBindings()); withSettings(candidateBindings());
+        await expect(ciDeploy(deps)).resolves.toBe(NEW_VERSION_ID);
+      });
+      it.each([
+        ['only client id', () => [...baseBindings(), secretBindings()[0]]],
+        ['only client secret', () => [...baseBindings(), secretBindings()[1]]],
+        ['no secrets (six)', () => baseBindings()],
+      ])('refuses to activate a candidate with %s', async (_name, bindings) => {
+        const originalRunWrangler = deps.runWrangler;
+        deps.runWrangler = vi.fn().mockImplementation(async (args: string[]) => {
+          if (args.join(' ') === `versions view ${NEW_VERSION_ID} --name ${EXPECTED_WORKER} --json`) return createViewResult(bindings());
+          return originalRunWrangler(args);
+        });
+        await expect(ciDeploy(deps)).rejects.toThrow(/Kandidat upload wajib memuat tepat dua secret Potensi/);
+        noActivation();
+      });
+      it.each([
+        ['wrong secret type', () => [...baseBindings(), { name: 'POTENSI_ACCESS_CLIENT_ID', type: 'plain_text', text: 'id' }, secretBindings()[1]], 'CI tidak diizinkan mengubah resources/secrets/bindings.'],
+        ['duplicate secret name', () => [...baseBindings(), secretBindings()[0], secretBindings()[0]], 'CI tidak diizinkan mengubah resources/secrets/bindings.'],
+        ['unknown alias binding', () => [...baseBindings(), secretBindings()[0], { name: 'POTENSI_CLIENT_SECRET', type: 'secret_text' }], 'CI tidak diizinkan mengubah resources/secrets/bindings.'],
+        ['nine bindings', () => [...candidateBindings(), { name: 'EXTRA', type: 'secret_text' }], 'CI tidak diizinkan mengubah resources/secrets/bindings.'],
+        ['prototype-named binding replacing a secret', () => [...baseBindings(), secretBindings()[0], { name: 'constructor', type: 'secret_text' }], 'CI tidak diizinkan mengubah resources/secrets/bindings.'],
+        ['prototype-named binding replacing a var', () => [...baseBindings().slice(0, 5), { name: 'toString', type: 'plain_text', text: 'UNSET' }, ...secretBindings()], 'CI tidak diizinkan mengubah resources/secrets/bindings.'],
+        ['KV namespace drift', () => [{ name: 'DB', type: 'd1', id: MIGRATION_DATABASE_ID }, { name: 'VEHICLE_CACHE', type: 'kv_namespace', namespace_id: 'd'.repeat(32) }, ...baseBindings().slice(2), ...secretBindings()], 'CI tidak diizinkan mengubah resources/secrets/bindings.'],
+        ['var value drift', () => [...baseBindings().slice(0, 3), { name: 'PASSWORD_PBKDF2_ITERATIONS', type: 'plain_text', text: '100000' }, ...baseBindings().slice(4), ...secretBindings()], 'Variables runtime berbeda; review terpisah diperlukan.'],
+      ])('rejects candidate with %s', async (_name, bindings, message) => {
+        const originalRunWrangler = deps.runWrangler;
+        deps.runWrangler = vi.fn().mockImplementation(async (args: string[]) => {
+          if (args.join(' ') === `versions view ${NEW_VERSION_ID} --name ${EXPECTED_WORKER} --json`) return createViewResult(bindings());
+          return originalRunWrangler(args);
+        });
+        await expect(ciDeploy(deps)).rejects.toThrow(message);
+        noActivation();
+      });
+      it('rejects a partial secret on the active baseline before upload', async () => {
+        withActive([...baseBindings(), secretBindings()[0]]);
+        await expect(ciDeploy(deps)).rejects.toThrow('Secret Potensi parsial; review operator diperlukan.');
+        expect(deps.runWrangler).not.toHaveBeenCalledWith(expect.arrayContaining(['upload']));
+      });
+      it('rejects an active baseline whose version id or compat date drifts', async () => {
+        const originalRunWrangler = deps.runWrangler;
+        deps.runWrangler = vi.fn().mockImplementation(async (args: string[]) => {
+          if (args.join(' ') === `versions view ${ACTIVE_VERSION_ID} --name ${EXPECTED_WORKER} --json`) return viewFor(NEW_VERSION_ID, baseBindings());
+          return originalRunWrangler(args);
+        });
+        await expect(ciDeploy(deps)).rejects.toThrow('Versi aktif tidak dapat diverifikasi.');
+        withActive(baseBindings(), '2026-10-08');
+        await expect(ciDeploy(deps)).rejects.toThrow('Settings Worker berbeda.');
+        expect(deps.runWrangler).not.toHaveBeenCalledWith(expect.arrayContaining(['upload']));
+      });
+      it('rejects settings metadata with a partial secret or unknown binding even when the active version is clean', async () => {
+        withSettings([...baseBindings(), secretBindings()[1]]);
+        await expect(ciDeploy(deps)).rejects.toThrow('Secret Potensi parsial; review operator diperlukan.');
+        withSettings([...baseBindings(), { name: 'BYPASS_FLAG', type: 'plain_text', text: '1' }]);
+        await expect(ciDeploy(deps)).rejects.toThrow('CI tidak diizinkan mengubah resources/secrets/bindings.');
+        expect(deps.runWrangler).not.toHaveBeenCalledWith(expect.arrayContaining(['upload']));
+      });
+      it('never reads a bypass environment flag for the binding count', async () => {
+        for (const key of ['CI_ALLOW_SIX_BINDINGS', 'RAZIA_BINDING_TRANSITION', 'ALLOW_PARTIAL_SECRETS']) deps.env[key] = '1';
+        const originalRunWrangler = deps.runWrangler;
+        deps.runWrangler = vi.fn().mockImplementation(async (args: string[]) => {
+          if (args.join(' ') === `versions view ${NEW_VERSION_ID} --name ${EXPECTED_WORKER} --json`) return createViewResult(baseBindings());
+          return originalRunWrangler(args);
+        });
+        await expect(ciDeploy(deps)).rejects.toThrow(/Kandidat upload wajib memuat tepat dua secret Potensi/);
+      });
+    });
+
     it('fails on wrong compat date', async () => {
       const originalRunWrangler = deps.runWrangler;
       deps.runWrangler = vi.fn().mockImplementation(async (args: string[]) => {
@@ -1556,13 +1654,12 @@ describe('ci-production', () => {
       const originalRunWrangler = deps.runWrangler;
       deps.runWrangler = vi.fn().mockImplementation(async (args: string[]) => {
         if (args.join(' ') === `versions view ${NEW_VERSION_ID} --name ${EXPECTED_WORKER} --json`) {
-          const badBindings = [...validBindings];
-          badBindings.pop(); // remove RETENTION_POLICY
+          const badBindings = validBindings.filter(binding => binding.name !== 'RETENTION_POLICY');
           return createViewResult(badBindings);
         }
         return originalRunWrangler(args);
       });
-      await expect(ciDeploy(deps)).rejects.toThrow('CI tidak diizinkan mengubah resources/secrets/bindings.');
+      await expect(ciDeploy(deps)).rejects.toThrow('Variables runtime berbeda; review terpisah diperlukan.');
     });
   });
 

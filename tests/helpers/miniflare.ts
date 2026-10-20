@@ -66,7 +66,24 @@ export async function startMigratedD1(worker: V4WorkerOptions = placeholderWorke
 }
 
 /** Suite-scoped runtime, per-test data isolation. Keep real schema/triggers/FKs intact. */
+/**
+ * Test-only: drops vehicle source changes (version > 1) so their admin actors can be deleted. The schema forbids
+ * DELETE on that table, so the append-only trigger is removed and re-created verbatim from the migration file
+ * inside the same atomic batch. Application code can never do this.
+ */
+export async function clearVehicleSourceChanges(db: TestD1): Promise<void> {
+  const table = await db.prepare("SELECT count(*) AS n FROM sqlite_master WHERE type='table' AND name='vehicle_source_settings'").first<number>('n');
+  if (!table || !await db.prepare('SELECT count(*) AS n FROM vehicle_source_settings WHERE version > 1').first<number>('n')) return;
+  const file = (await loadMigrationFiles('0005_vehicle_source.sql')).find(entry => entry.filename === '0005_vehicle_source.sql');
+  const guard = file?.statements.find(statement => statement.startsWith('CREATE TRIGGER vehicle_source_settings_append_only'));
+  if (!guard) throw new Error('Append-only trigger definition not found');
+  await db.batch([db.prepare('DROP TRIGGER vehicle_source_settings_append_only'), db.prepare('DELETE FROM vehicle_source_settings WHERE version > 1'), db.prepare(guard)]);
+}
+
+/** Suite-scoped runtime, per-test data isolation. Keep real schema/triggers/FKs intact. */
 export async function resetTestD1(db: TestD1): Promise<void> {
+  // Vehicle source changes reference their admin actor; only the migration seed row (version 1) survives.
+  await clearVehicleSourceChanges(db);
   // Delete children before parents with foreign keys enabled; never bypass schema guards.
   await db.batch(['check_logs', 'admin_audit_logs', 'raid_sessions', 'user_sessions', 'users', 'locations']
     .map(table => db.prepare(`DELETE FROM ${table}`)));

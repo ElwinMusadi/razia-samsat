@@ -11,7 +11,8 @@ export function isLocalDevelopment(request: Request, env: DevelopmentEnv): boole
 }
 
 export function createDevelopmentHandler(clock: () => Date = () => new Date()): ExportedHandler<DevelopmentEnv> {
-  const app = createApp(undefined, { source: new DevVehicleSource(clock), clock });
+  // Both providers are simulated: whichever source an admin selects, development stays zero-outbound.
+  const app = createApp(undefined, { sources: { BPAD: new DevVehicleSource(clock, 'BPAD'), POTENSI_NTT: new DevVehicleSource(clock, 'POTENSI_NTT') }, clock });
   return {
     fetch(request, env, ctx) {
       // URL origin plus the config marker are defense in depth, not proof of a local listener.

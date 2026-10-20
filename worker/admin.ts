@@ -36,21 +36,21 @@ const normalizeLocationName = (value: unknown): string | null => {
  return name.length >= 1 && name.length <= 200 ? name : null;
 };
 // Bind exact server-authenticated identity. A second device cannot authorize a stale request.
-const AUTH = `SELECT u.role FROM user_sessions s JOIN users u ON u.id = s.user_id
+export const AUTH = `SELECT u.role FROM user_sessions s JOIN users u ON u.id = s.user_id
  WHERE s.id = ? AND s.user_id = ? AND s.revoked_at IS NULL AND s.expires_at > unixepoch()
  AND u.is_active = 1 AND u.role IN ('ADMIN','OFFICER')`;
-const ADMIN = `SELECT 1 FROM (${AUTH}) WHERE role = 'ADMIN'`;
+export const ADMIN = `SELECT 1 FROM (${AUTH}) WHERE role = 'ADMIN'`;
 const FIELDS = `u.id, u.username, u.role, u.is_active, u.created_at, u.updated_at,
  (SELECT COUNT(*) FROM user_sessions t WHERE t.user_id = u.id AND t.revoked_at IS NULL AND t.expires_at > unixepoch()) AS active_session_count`;
 const toUser = (row: UserRow): AdminUser => ({ id: row.id, username: row.username, role: row.role, is_active: row.is_active === 1,
  created_at: row.created_at, updated_at: row.updated_at, active_session_count: row.active_session_count });
-function bindings(c: Context<AppEnv>): [string, string] { const auth = currentAuth(c); return [auth.sessionId, auth.userId]; }
-function statement(c: Context<AppEnv>, sql: string, ...values: (string | number)[]): D1PreparedStatement { return c.env.DB.prepare(sql).bind(...values); }
-function authorization(c: Context<AppEnv>): D1PreparedStatement { return statement(c, AUTH, ...bindings(c)); }
+export function bindings(c: Context<AppEnv>): [string, string] { const auth = currentAuth(c); return [auth.sessionId, auth.userId]; }
+export function statement(c: Context<AppEnv>, sql: string, ...values: (string | number)[]): D1PreparedStatement { return c.env.DB.prepare(sql).bind(...values); }
+export function authorization(c: Context<AppEnv>): D1PreparedStatement { return statement(c, AUTH, ...bindings(c)); }
 function target(c: Context<AppEnv>, id: string): D1PreparedStatement {
  return statement(c, `SELECT ${FIELDS} FROM users u WHERE u.id = ? AND EXISTS (${ADMIN})`, id, ...bindings(c));
 }
-function assertActor(c: Context<AppEnv>, result: D1Result): void {
+export function assertActor(c: Context<AppEnv>, result: D1Result): void {
  const actor = result.results[0] as { role: Role } | undefined;
  if (!actor) { clearSessionCookie(c); throw new AppError('AUTHENTICATION_ERROR'); }
  if (actor.role !== 'ADMIN') throw new AppError('AUTHORIZATION_ERROR');
@@ -60,7 +60,7 @@ function userFrom(result: D1Result, sessionRoute = false): AdminUser {
  if (!row) throw new AppError(sessionRoute ? 'SESSION_NOT_FOUND' : 'USER_NOT_FOUND');
  return toUser(row);
 }
-async function exactBody(c: Context<AppEnv>, keys: string[]): Promise<Record<string, unknown>> {
+export async function exactBody(c: Context<AppEnv>, keys: string[]): Promise<Record<string, unknown>> {
  readPage(c, false);
  const body = await readJsonObject(c);
  if (Object.keys(body).length !== keys.length || keys.some(key => !Object.hasOwn(body, key))) throw new AppError('INVALID_INPUT');

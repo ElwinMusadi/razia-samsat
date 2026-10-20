@@ -14,13 +14,17 @@ export const errorCatalog = {
   SESSION_CONFLICT: { status: 409, message: 'Akun sedang aktif di perangkat lain. Hubungi admin untuk mereset sesi.' },
   RAID_SESSION_ALREADY_ACTIVE: { status: 409, message: 'Masih ada sesi razia yang aktif.' },
   RAID_SESSION_REQUIRED: { status: 409, message: 'Sesi razia aktif diperlukan.' },
+  VEHICLE_SOURCE_CONFLICT: { status: 409, message: 'Pengaturan sumber data sudah berubah. Muat ulang, lalu periksa kembali sebelum menyimpan.' },
   PAYLOAD_TOO_LARGE: { status: 413, message: 'Ukuran permintaan terlalu besar.' },
   LOCATION_UNAVAILABLE: { status: 422, message: 'Lokasi tidak tersedia.' },
+  VEHICLE_SOURCE_CREDENTIALS_MISSING: { status: 422, message: 'Sumber Potensi NTT belum dapat dipilih karena kredensial layanan belum tersedia.' },
   INTERNAL_ERROR: { status: 500, message: 'Terjadi kesalahan layanan.' },
   UPSTREAM_ERROR: { status: 502, message: 'Layanan data tidak tersedia.' },
   UPSTREAM_MALFORMED: { status: 502, message: 'Respons layanan data tidak valid.' },
   UPSTREAM_NETWORK: { status: 502, message: 'Layanan data tidak dapat dihubungi.' },
+  UPSTREAM_FORBIDDEN: { status: 502, message: 'Layanan data menolak akses aplikasi. Hubungi admin untuk memeriksa kredensial sumber data.' },
   UPSTREAM_BUSY: { status: 503, message: 'Layanan data sedang sibuk.' },
+  VEHICLE_SOURCE_UNAVAILABLE: { status: 503, message: 'Sumber data kendaraan belum tersedia. Hubungi admin untuk memeriksa pengaturan sumber data.' },
   TIMEOUT: { status: 504, message: 'Layanan data melewati batas waktu.' },
 } as const;
 export type ErrorCode = keyof typeof errorCatalog;

@@ -62,15 +62,22 @@ export function normalizeNopol(input: unknown): string | null {
 }
 
 export type VehicleStatus = 'ACTIVE' | 'EXPIRED' | 'UNKNOWN';
+export const VEHICLE_PROVIDERS = ['BPAD', 'POTENSI_NTT'] as const;
+export type VehicleProvider = typeof VEHICLE_PROVIDERS[number];
+export const isVehicleProvider = (value: unknown): value is VehicleProvider => VEHICLE_PROVIDERS.includes(value as VehicleProvider);
+export const providerLabel = (provider: VehicleProvider) => provider === 'BPAD' ? 'BPAD' : 'Potensi NTT';
+/** Identity fields may be null: the Potensi snapshot can legitimately lack them. */
 export type Vehicle = {
-  nopol: string; owner_name: string; brand: string; type: string; color: string;
+  nopol: string; owner_name: string | null; brand: string | null; type: string | null; color: string | null;
   tax_due_date: string | null; stnk_due_date: string | null; tax_status: VehicleStatus; stnk_status: VehicleStatus;
 };
-export type VehicleFound = { outcome: 'FOUND'; vehicle: Vehicle; source: 'LIVE' | 'CACHE'; fetched_at: string; evaluated_on: string; request_id: string };
-export type VehicleNotFound = { outcome: 'NOT_FOUND'; request_id: string };
+/** Every lookup calls upstream (`source: LIVE`). `snapshot_synced_at` is the BPAD snapshot pull time (Potensi only). */
+export type VehicleFound = { outcome: 'FOUND'; vehicle: Vehicle; source: 'LIVE'; provider: VehicleProvider; fetched_at: string; snapshot_synced_at: string | null; evaluated_on: string; request_id: string };
+export type VehicleNotFound = { outcome: 'NOT_FOUND'; provider: VehicleProvider; request_id: string };
 export type VehicleLookupResult = VehicleFound | VehicleNotFound;
 
 const vehicleText = (value: unknown): value is string => typeof value === 'string' && value.length > 0 && value.length <= 200 && value === value.trim() && !/[\p{Cc}\p{Cs}]/u.test(value);
+const nullableVehicleText = (value: unknown): value is string | null => value === null || vehicleText(value);
 const requestId = (value: unknown): value is string => typeof value === 'string' && value.length > 0 && value.length <= 200 && !/[\p{Cc}\p{Cs}]/u.test(value);
 const vehicleStatus = (value: unknown): value is VehicleStatus => value === 'ACTIVE' || value === 'EXPIRED' || value === 'UNKNOWN';
 function calendarDate(value: unknown): value is string {
@@ -90,11 +97,14 @@ export function parseVehicleLookup(value: unknown, requestedNopol: string): Vehi
   if (!object(value) || !requestId(value.request_id)) return invalid();
   const responseId = value.request_id;
   const reject = (): never => { throw new ApiError('Respons layanan tidak valid. Coba lagi.', 0, 'INVALID_RESPONSE', responseId); };
-  if (normalizeNopol(requestedNopol) !== requestedNopol) return reject();
-  if (value.outcome === 'NOT_FOUND') return { outcome: 'NOT_FOUND', request_id: responseId };
+  if (normalizeNopol(requestedNopol) !== requestedNopol || !isVehicleProvider(value.provider)) return reject();
+  if (value.outcome === 'NOT_FOUND') return { outcome: 'NOT_FOUND', provider: value.provider, request_id: responseId };
   const vehicle = value.vehicle;
-  if (value.outcome !== 'FOUND' || !object(vehicle) || (value.source !== 'LIVE' && value.source !== 'CACHE') || !utcInstant(value.fetched_at) || !calendarDate(value.evaluated_on)) return reject();
-  if (vehicle.nopol !== requestedNopol || !vehicleText(vehicle.owner_name) || !vehicleText(vehicle.brand) || !vehicleText(vehicle.type) || !vehicleText(vehicle.color)
+  if (value.outcome !== 'FOUND' || !object(vehicle) || value.source !== 'LIVE' || !utcInstant(value.fetched_at) || !calendarDate(value.evaluated_on)) return reject();
+  // BPAD is live data (no snapshot time); Potensi must carry the snapshot pull time.
+  const synced = value.snapshot_synced_at;
+  if (value.provider === 'BPAD' ? synced !== null : !utcInstant(synced)) return reject();
+  if (vehicle.nopol !== requestedNopol || !nullableVehicleText(vehicle.owner_name) || !nullableVehicleText(vehicle.brand) || !nullableVehicleText(vehicle.type) || !nullableVehicleText(vehicle.color)
     || !dueDate(vehicle.tax_due_date) || !dueDate(vehicle.stnk_due_date) || !vehicleStatus(vehicle.tax_status) || !vehicleStatus(vehicle.stnk_status)) return reject();
   return {
     outcome: 'FOUND',
@@ -102,16 +112,17 @@ export function parseVehicleLookup(value: unknown, requestedNopol: string): Vehi
       nopol: requestedNopol, owner_name: vehicle.owner_name, brand: vehicle.brand, type: vehicle.type, color: vehicle.color,
       tax_due_date: vehicle.tax_due_date, stnk_due_date: vehicle.stnk_due_date, tax_status: vehicle.tax_status, stnk_status: vehicle.stnk_status,
     },
-    source: value.source, fetched_at: value.fetched_at, evaluated_on: value.evaluated_on, request_id: value.request_id,
+    source: 'LIVE', provider: value.provider, fetched_at: value.fetched_at, snapshot_synced_at: synced as string | null, evaluated_on: value.evaluated_on, request_id: value.request_id,
   };
 }
 
 // History contracts (Phase 5). Snapshots are displayed as recorded; statuses are never recomputed.
 export type HistoryOwner = { id: string; username: string };
 export type HistoryRaid = RaidSession & { owner: HistoryOwner };
+// `source: CACHE` and `provider: null` are legacy rows recorded before the no-cache/provider policy; they are shown as recorded.
 export type HistoryCheck = {
   id: string; nopol: string; outcome: 'FOUND' | 'NOT_FOUND'; tax_status: VehicleStatus | null; stnk_status: VehicleStatus | null;
-  source: 'LIVE' | 'CACHE'; checked_at: number; vehicle_brand: string | null; vehicle_type: string | null; vehicle_color: string | null;
+  source: 'LIVE' | 'CACHE'; provider: VehicleProvider | null; checked_at: number; vehicle_brand: string | null; vehicle_type: string | null; vehicle_color: string | null;
 };
 export type HistorySummary = { total_checks: number; found: number; not_found: number; tax_active: number; tax_expired: number; tax_unknown: number };
 export type HistoryRaidPage = { raid_sessions: HistoryRaid[]; next_cursor: string | null };
@@ -141,12 +152,15 @@ export function parseHistoryCheck(value: unknown): HistoryCheck {
   const type = value.vehicle_type ?? null;
   const color = value.vehicle_color ?? null;
   if (!vehicleLabel(brand) || !vehicleLabel(type) || !vehicleLabel(color)) return invalid();
+  // Provider provenance is a newer optional snapshot column: missing/null reads as unknown legacy provenance.
+  const provider = value.provider ?? null;
+  if (provider !== null && !isVehicleProvider(provider)) return invalid();
   if (value.outcome === 'NOT_FOUND') {
     if (value.tax_status !== null || value.stnk_status !== null || value.source !== 'LIVE' || brand !== null || type !== null || color !== null) return invalid();
-    return { ...base, outcome: 'NOT_FOUND', tax_status: null, stnk_status: null, source: 'LIVE', vehicle_brand: null, vehicle_type: null, vehicle_color: null };
+    return { ...base, outcome: 'NOT_FOUND', tax_status: null, stnk_status: null, source: 'LIVE', provider, vehicle_brand: null, vehicle_type: null, vehicle_color: null };
   }
   if (value.outcome !== 'FOUND' || !vehicleStatus(value.tax_status) || !vehicleStatus(value.stnk_status) || (value.source !== 'LIVE' && value.source !== 'CACHE')) return invalid();
-  return { ...base, outcome: 'FOUND', tax_status: value.tax_status, stnk_status: value.stnk_status, source: value.source, vehicle_brand: brand, vehicle_type: type, vehicle_color: color };
+  return { ...base, outcome: 'FOUND', tax_status: value.tax_status, stnk_status: value.stnk_status, source: value.source, provider, vehicle_brand: brand, vehicle_type: type, vehicle_color: color };
 }
 export function parseHistorySummary(value: unknown): HistorySummary {
   if (!object(value) || !count(value.total_checks) || !count(value.found) || !count(value.not_found) || !count(value.tax_active) || !count(value.tax_expired) || !count(value.tax_unknown)) return invalid();
@@ -223,10 +237,24 @@ export function parseAdminMutation(value: unknown, userId: string): AdminMutatio
   if (!object(value) || typeof value.signed_out !== 'boolean') return invalid();
   return { user: parseAdminUser(value.user, userId), signed_out: value.signed_out };
 }
+// Global vehicle source setting (ADMIN). Credential presence is a boolean only; no secret value ever reaches the client.
+export type VehicleSourceSetting = { provider: VehicleProvider; version: number; updated_at: number; updated_by: { id: string; username: string } | null };
+export type VehicleSourceState = { setting: VehicleSourceSetting; potensi_credentials_configured: boolean };
+export function parseVehicleSourceState(value: unknown): VehicleSourceState {
+  if (!object(value) || !object(value.setting) || typeof value.potensi_credentials_configured !== 'boolean') return invalid();
+  const setting = value.setting;
+  if (!isVehicleProvider(setting.provider) || !count(setting.version) || setting.version < 1 || !epoch(setting.updated_at)) return invalid();
+  const by = setting.updated_by;
+  if (by !== null && (!object(by) || !id(by.id) || !historyUsername(by.username))) return invalid();
+  return {
+    setting: { provider: setting.provider, version: setting.version, updated_at: setting.updated_at, updated_by: by === null ? null : { id: (by as { id: string }).id, username: (by as { username: string }).username } },
+    potensi_credentials_configured: value.potensi_credentials_configured,
+  };
+}
 const adminPath = (userId: string) => `/api/admin/users/${encodeURIComponent(userId)}`;
 
 export const REQUEST_TIMEOUT_MS = 15000;
-async function request<T>(path: string, parse: (value: unknown) => T, signal?: AbortSignal, body?: object, method?: 'POST' | 'PATCH' | 'DELETE'): Promise<T> {
+async function request<T>(path: string, parse: (value: unknown) => T, signal?: AbortSignal, body?: object, method?: 'POST' | 'PATCH' | 'PUT' | 'DELETE'): Promise<T> {
   const controller = new AbortController();
   const abort = () => controller.abort();
   signal?.addEventListener('abort', abort, { once: true });
@@ -282,6 +310,10 @@ export const api = {
     request(`/api/admin/locations/${locationId}`, value => parseAdminLocation(value, locationId), signal, patch, 'PATCH'),
   adminDeleteLocation: (locationId: string, signal?: AbortSignal): Promise<AdminLocation> =>
     request(`/api/admin/locations/${locationId}`, value => parseAdminLocation(value, locationId), signal, {}, 'DELETE'),
+  vehicleSource: (signal?: AbortSignal): Promise<VehicleSourceState> => request('/api/admin/vehicle-source', parseVehicleSourceState, signal),
+  // Compare-and-set: the server rejects a stale expected_version with 409 instead of overwriting another admin's change.
+  updateVehicleSource: (provider: VehicleProvider, expectedVersion: number, signal?: AbortSignal): Promise<VehicleSourceState> =>
+    request('/api/admin/vehicle-source', parseVehicleSourceState, signal, { provider, expected_version: expectedVersion }, 'PUT'),
   me: (signal?: AbortSignal) => request('/api/auth/me', parseAuth, signal),
   login: (username: string, password: string, signal?: AbortSignal) => request('/api/auth/login', parseAuth, signal, { username, password }),
   logout: (signal?: AbortSignal) => request('/api/auth/logout', () => undefined, signal, {}),

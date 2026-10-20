@@ -11,7 +11,7 @@ import { NopolInput } from '../src/components/nopol-input';
 import { ApiError, errorText, type VehicleFound } from '../src/lib/api';
 
 const css = await readFile(`${process.cwd()}/src/index.css`, 'utf8');
-const result: VehicleFound = { outcome: 'FOUND', vehicle: { nopol: 'DH1823HJ', owner_name: 'Pemilik Sintetis', brand: 'Merek Sintetis', type: 'Tipe Sintetis', color: 'Warna Sintetis', tax_due_date: '2000-01-01', stnk_due_date: null, tax_status: 'ACTIVE', stnk_status: 'UNKNOWN' }, source: 'LIVE', fetched_at: '2026-10-08T00:00:00.000Z', evaluated_on: '2026-10-08', request_id: 'PRIVATE_REQUEST_ID' };
+const result: VehicleFound = { outcome: 'FOUND', vehicle: { nopol: 'DH1823HJ', owner_name: 'Pemilik Sintetis', brand: 'Merek Sintetis', type: 'Tipe Sintetis', color: 'Warna Sintetis', tax_due_date: '2000-01-01', stnk_due_date: null, tax_status: 'ACTIVE', stnk_status: 'UNKNOWN' }, source: 'LIVE', provider: 'BPAD', fetched_at: '2026-10-08T00:00:00.000Z', snapshot_synced_at: null, evaluated_on: '2026-10-08', request_id: 'PRIVATE_REQUEST_ID' };
 afterEach(() => { cleanup(); vi.restoreAllMocks(); });
 function rgb(hex: string) { return hex.replace('#', '').match(/../g)!.map(value => parseInt(value, 16) / 255); }
 function luminance(color: number[]) { return color.map(value => value <= 0.04045 ? value / 12.92 : ((value + 0.055) / 1.055) ** 2.4).reduce((sum, value, index) => sum + value * [0.2126, 0.7152, 0.0722][index]!, 0); }

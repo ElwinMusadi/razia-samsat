@@ -1,6 +1,7 @@
 import { errorCatalog, type ErrorCode } from '../shared/errors';
-// Allowlisted events only. Never add username, password, token, cookie, IP or request body fields.
-const events = ['request_failed', 'request_completed', 'auth_login_succeeded', 'auth_logout', 'cache_read_failed', 'cache_rejected', 'cache_write_failed', 'history_write_failed'] as const;
+// Allowlisted events only. Never add username, password, token, cookie, IP, plate or request body fields.
+// No cache events exist: vehicle lookups never read or write a cache.
+const events = ['request_failed', 'request_completed', 'auth_login_succeeded', 'auth_logout', 'history_write_failed', 'vehicle_source_changed'] as const;
 export type SafeLogEvent = { event: typeof events[number]; request_id: string; code?: ErrorCode };
 export type SafeLogger = (entry: SafeLogEvent) => void;
 export function createSafeLogger(sink: (line: string) => void = line => console.log(line)): SafeLogger {

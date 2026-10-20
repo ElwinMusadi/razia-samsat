@@ -14,7 +14,8 @@ const auth = (active: RaidSession | null = raid): AuthState => ({ user: { id: '3
 const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } });
 const failure = (status: number, code: string, requestId = 'req-error') => json({ error: { code, message: 'Pesan layanan sintetis', request_id: requestId } }, status);
 const vehicle = (nopol = 'DH1234ZZ', patch: Record<string, unknown> = {}) => ({ nopol, owner_name: 'Pemilik Sintetis', brand: 'Merek Sintetis', type: 'Tipe Sintetis', color: 'Warna Sintetis', tax_due_date: '2026-10-07', stnk_due_date: '2027-03-01', tax_status: 'EXPIRED', stnk_status: 'ACTIVE', ...patch });
-const found = (nopol = 'DH1234ZZ', patch: Record<string, unknown> = {}, extra: Record<string, unknown> = {}) => json({ outcome: 'FOUND', vehicle: vehicle(nopol, patch), source: 'LIVE', fetched_at: '2026-10-06T16:30:05.000Z', evaluated_on: '2026-10-07', request_id: 'req-found', ...extra });
+const found = (nopol = 'DH1234ZZ', patch: Record<string, unknown> = {}, extra: Record<string, unknown> = {}) => json({ outcome: 'FOUND', vehicle: vehicle(nopol, patch), source: 'LIVE', provider: 'BPAD', fetched_at: '2026-10-06T16:30:05.000Z', snapshot_synced_at: null, evaluated_on: '2026-10-07', request_id: 'req-found', ...extra });
+const potensiFound = (nopol = 'DH1234ZZ', patch: Record<string, unknown> = {}) => found(nopol, patch, { provider: 'POTENSI_NTT', snapshot_synced_at: '2026-10-05T16:00:00.000Z' });
 const sensitive = { NIK: 'SENSITIVE_NIK', Alamat: 'SENSITIVE_ADDRESS', NoRangka: 'SENSITIVE_CHASSIS', NoMesin: 'SENSITIVE_ENGINE', NoBPKB: 'SENSITIVE_BPKB', NOPOL_EKS: 'SENSITIVE_EKS', Kohir: 'SENSITIVE_KOHIR' };
 function deferred<T>() { let resolve!: (value: T) => void; const promise = new Promise<T>(accept => { resolve = accept; }); return { promise, resolve }; }
 
@@ -313,9 +314,47 @@ describe('scanner lookup flow', () => {
     vi.useRealTimers();
     await act(async () => pending.resolve(found()));
     await screen.findByRole('heading', { name: 'DH1234ZZ' });
+    // No cache: Enter on the same plate after a completed result is exactly one new upstream request.
+    fireEvent.submit(input.form!);
+    expect(lookupCalls()).toHaveLength(2);
+    expect(document.activeElement).not.toBe(input);
+    fireEvent.submit(input.form!);
+    expect(lookupCalls()).toHaveLength(2);
+  });
+  it.each(['FOUND', 'NOT_FOUND'] as const)('re-submits the same NOPOL after %s without clearing, once per Enter, never while loading', async outcome => {
+    const responses: ReturnType<typeof deferred<Response>>[] = [];
+    const input = await ready(auth(), () => { const next = deferred<Response>(); responses.push(next); return next.promise; });
+    fireEvent.change(input, { target: { value: 'DH1234ZZ' } });
     fireEvent.submit(input.form!);
     expect(lookupCalls()).toHaveLength(1);
-    expect(document.activeElement).not.toBe(input);
+    await act(async () => responses[0]!.resolve(outcome === 'FOUND' ? found() : json({ outcome: 'NOT_FOUND', provider: 'BPAD', request_id: 'req-nf' })));
+    await screen.findByRole('heading', { name: 'DH1234ZZ' });
+    fireEvent.submit(input.form!);
+    expect(lookupCalls()).toHaveLength(2);
+    expect(lookupCalls()[1]![1]!.body).toBe('{"nopol":"DH1234ZZ"}');
+    expect(lookupStatus().textContent).toContain('Mencari data DH1234ZZ');
+    fireEvent.submit(input.form!); fireEvent.submit(input.form!);
+    expect(lookupCalls()).toHaveLength(2);
+    await act(async () => responses[1]!.resolve(found('DH1234ZZ', { owner_name: 'Pemilik Kedua' })));
+    expect((await screen.findByRole('article')).textContent).toContain('Pemilik Kedua');
+    expect(lookupSignals[0]!.aborted).toBe(false);
+  });
+  it('renders Potensi results with the snapshot time, nullable facts as "Tidak tersedia" and snapshot-aware absence copy', async () => {
+    const input = await ready(auth(), nopol => nopol === 'DH1234ZZ' ? potensiFound(nopol, { owner_name: null, brand: null }) : json({ outcome: 'NOT_FOUND', provider: 'POTENSI_NTT', request_id: 'req-nf' }));
+    await search('DH1234ZZ');
+    const card = await screen.findByRole('article');
+    expect(card.querySelector('[data-provider="POTENSI_NTT"]')).not.toBeNull();
+    expect(card.textContent).toContain('Sumber data: Potensi NTT');
+    expect(card.textContent).toContain('snapshot BPAD per');
+    expect(card.textContent).toContain('WITA');
+    expect(card.textContent).not.toContain('2026-10-06T16:30:05.000Z');
+    expect(card.textContent).toMatch(/Nama pemilikTidak tersedia/); expect(card.textContent).toMatch(/MerekTidak tersedia/);
+    expect(card.textContent).toContain('Tipe Sintetis');
+    fireEvent.change(input, { target: { value: 'DH9999ZZ' } }); fireEvent.submit(input.form!);
+    await screen.findByRole('heading', { name: 'DH9999ZZ' });
+    expect(screen.getByText('Data kendaraan tidak ada di snapshot Potensi NTT')).toBeTruthy();
+    expect(document.body.textContent).toContain('bukan kepastian kendaraan tidak terdaftar di BPAD');
+    expect(document.body.textContent).not.toMatch(/Data langsung|Data cache|Diambil|Dievaluasi/);
   });
   it('keeps the same live region mounted, compact when idle and visible while loading', async () => {
     const pending = deferred<Response>();
@@ -334,7 +373,13 @@ describe('scanner lookup flow', () => {
     await screen.findByRole('heading', { name: 'DH1234ZZ' });
     expect(lookupStatus()).toBe(status); expect(status.textContent).toBe(''); expect(status.className).toBe('sr-only');
   });
-  it.each(['LIVE', 'CACHE'] as const)('renders %s FOUND card with statuses and due dates without the removed scanner metadata', async source => {
+  it('rejects a lookup body claiming CACHE provenance as a failure, never a rendered result', async () => {
+    await ready(auth(), nopol => found(nopol, {}, { source: 'CACHE' }));
+    await search('DH1234ZZ');
+    expect((await screen.findByRole('alert')).textContent).toContain('Data kendaraan tidak dapat diambil');
+    expect(screen.queryByRole('article')).toBeNull();
+  });
+  it.each(['LIVE'] as const)('renders %s FOUND card with statuses and due dates without the removed scanner metadata', async source => {
     await ready(auth(), nopol => found(nopol, {}, { source }));
     await search('dh 1234 zz');
     const card = await screen.findByRole('article');
@@ -357,7 +402,7 @@ describe('scanner lookup flow', () => {
     expect(screen.queryByText('Data kendaraan tidak ditemukan')).toBeNull();
   });
   it('renders UNKNOWN as neutral text without cache metadata', async () => {
-    await ready(auth(), nopol => found(nopol, { tax_status: 'UNKNOWN', tax_due_date: null, stnk_status: 'UNKNOWN', stnk_due_date: null }, { source: 'CACHE' }));
+    await ready(auth(), nopol => found(nopol, { tax_status: 'UNKNOWN', tax_due_date: null, stnk_status: 'UNKNOWN', stnk_due_date: null }));
     await search('DH1234ZZ');
     const tax = await screen.findByRole('region', { name: 'Status Pajak' });
     const badge = tax.querySelector('[data-status]')!;
@@ -370,7 +415,7 @@ describe('scanner lookup flow', () => {
     expect(card.textContent).not.toMatch(/Data langsung|Data cache|Diambil|Dievaluasi|Keputusan pemeriksaan tetap pada petugas/);
   });
   it('shows NOT_FOUND distinctly with the requested normalized NOPOL', async () => {
-    await ready(auth(), () => json({ outcome: 'NOT_FOUND', request_id: 'req-nf', message: 'SENSITIVE provider text' }));
+    await ready(auth(), () => json({ outcome: 'NOT_FOUND', provider: 'BPAD', request_id: 'req-nf', message: 'SENSITIVE provider text' }));
     await search('dh 1 a');
     await screen.findByText('Data kendaraan tidak ditemukan');
     expect(screen.getByText('DH1A')).toBeTruthy();

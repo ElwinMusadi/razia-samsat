@@ -21,12 +21,12 @@ describe('0003 actual D1 populated upgrade and guards', () => {
   await applyTestMigrations(db,undefined,'0002_history.sql');
   for (const [i,table] of tables.entries()) {
    const rows = (await db.prepare(`SELECT * FROM ${table} ORDER BY id`).all()).results as Record<string,unknown>[];
-   // 0004 adds nullable vehicle snapshot columns; pre-migration rows keep NULL.
-   expect(rows.map(({vehicle_brand,vehicle_type,vehicle_color,...rest})=>rest)).toEqual(original[i]);
+   // 0004/0005 add nullable vehicle snapshot and provider columns; pre-migration rows keep NULL.
+   expect(rows.map(({vehicle_brand,vehicle_type,vehicle_color,provider:_provider,...rest})=>rest)).toEqual(original[i]);
   }
-  expect((await db.prepare('SELECT vehicle_brand,vehicle_type,vehicle_color FROM check_logs').all()).results).toEqual([{vehicle_brand:null,vehicle_type:null,vehicle_color:null}]);
+  expect((await db.prepare('SELECT vehicle_brand,vehicle_type,vehicle_color,provider FROM check_logs').all()).results).toEqual([{vehicle_brand:null,vehicle_type:null,vehicle_color:null,provider:null}]);
   expect(original[0]).toHaveLength(7); expect((await db.prepare('PRAGMA foreign_key_check').all()).results).toEqual([]); expect(await db.prepare('PRAGMA foreign_keys').first('foreign_keys')).toBe(1);
-  expect((await db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' AND name NOT LIKE '_cf_%' ORDER BY name").all<{name:string}>()).results.map((row: {name:string}) => row.name)).toEqual(tables);
+  expect((await db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' AND name NOT LIKE '_cf_%' ORDER BY name").all<{name:string}>()).results.map((row: {name:string}) => row.name)).toEqual([...tables,'vehicle_source_settings']);
   expect((await db.prepare('PRAGMA table_info(admin_audit_logs)').all<{name:string}>()).results.map((row: {name:string})=>row.name)).toEqual(['id','actor_user_id','action','target_user_id','target_session_id','target_location_id','occurred_at']);
   await expect(db.prepare("INSERT INTO admin_audit_logs(id,actor_user_id,action,target_user_id) VALUES('inactive','actor','USER_ACTIVATED','target')").run()).rejects.toThrow('Active admin required');
  });

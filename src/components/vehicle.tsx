@@ -1,6 +1,6 @@
 import { SearchCheck, SearchX } from 'lucide-react';
 import { StatusChip, type StatusChipTone } from './ui/status-chip';
-import { formatCalendarDate, type VehicleFound, type VehicleLookupResult, type VehicleStatus as Status } from '@/lib/api';
+import { formatCalendarDate, formatInstantWita, providerLabel, type VehicleFound, type VehicleLookupResult, type VehicleProvider, type VehicleStatus as Status } from '@/lib/api';
 
 /** Lookup outcome and vehicle status intentionally have separate prop domains. */
 export function LookupOutcomeBadge({ outcome }: { outcome: VehicleLookupResult['outcome'] }) {
@@ -29,6 +29,17 @@ function StatusBlock({ id, label, status, due }: { id: string; label: string; st
     <p className="supporting">Jatuh tempo: <span className="font-medium">{formatCalendarDate(due)}</span></p>
   </section>;
 }
+/**
+ * Provider provenance line. Potensi is a BPAD snapshot: the snapshot pull time is shown, never the
+ * API request time, so "fresh request" is not mistaken for "fresh data".
+ */
+export function ProviderNote({ provider, syncedAt }: { provider: VehicleProvider; syncedAt: string | null }) {
+  return <p className="supporting" data-provider={provider}>
+    Sumber data: <span className="font-medium">{providerLabel(provider)}</span>
+    {provider === 'POTENSI_NTT' && syncedAt !== null && <> · snapshot BPAD per {formatInstantWita(syncedAt)}</>}
+  </p>;
+}
+const fact = (value: string | null) => value ?? 'Tidak tersedia';
 export function VehicleResultCard({ result }: { result: VehicleFound }) {
   const { vehicle } = result;
   return <article aria-labelledby="result-nopol" className="vehicle-result result-enter">
@@ -39,10 +50,11 @@ export function VehicleResultCard({ result }: { result: VehicleFound }) {
       <StatusBlock id="stnk-status-title" label="Status STNK" status={vehicle.stnk_status} due={vehicle.stnk_due_date} />
     </div>
     <dl className="vehicle-facts">
-      <div><dt>Nama pemilik</dt><dd>{vehicle.owner_name}</dd></div>
-      <div><dt>Merek</dt><dd>{vehicle.brand}</dd></div>
-      <div><dt>Tipe</dt><dd>{vehicle.type}</dd></div>
-      <div><dt>Warna</dt><dd>{vehicle.color}</dd></div>
+      <div><dt>Nama pemilik</dt><dd>{fact(vehicle.owner_name)}</dd></div>
+      <div><dt>Merek</dt><dd>{fact(vehicle.brand)}</dd></div>
+      <div><dt>Tipe</dt><dd>{fact(vehicle.type)}</dd></div>
+      <div><dt>Warna</dt><dd>{fact(vehicle.color)}</dd></div>
     </dl>
+    <ProviderNote provider={result.provider} syncedAt={result.snapshot_synced_at} />
   </article>;
 }

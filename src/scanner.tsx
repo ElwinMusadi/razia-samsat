@@ -5,7 +5,7 @@ type ScanContext = { auth: AuthState | null; busy: boolean };
 import { Link } from 'react-router';
 import { Button } from './components/ui/button';
 import { useAuth } from './auth';
-import { api, ApiError, isAbort, normalizeNopol, type VehicleFound } from './lib/api';
+import { api, ApiError, isAbort, normalizeNopol, providerLabel, type VehicleFound, type VehicleProvider } from './lib/api';
 import { NopolInput } from './components/nopol-input';
 import { LookupOutcomeBadge, VehicleResultCard } from './components/vehicle';
 import { SessionBar } from './components/session-bar';
@@ -20,7 +20,7 @@ type ScanState =
   | { kind: 'idle' }
   | { kind: 'loading'; nopol: string }
   | { kind: 'found'; nopol: string; result: VehicleFound }
-  | { kind: 'not-found'; nopol: string; requestId: string }
+  | { kind: 'not-found'; nopol: string; provider: VehicleProvider; requestId: string }
   | { kind: 'input-error'; nopol: string; error: ApiError }
   | { kind: 'raid-required'; nopol: string; error: ApiError; sync: 'pending' | 'done' | 'failed' }
   | { kind: 'failure'; nopol: string; error: ApiError | null };
@@ -88,7 +88,7 @@ export function Scanner() {
     try {
       const result = await protectedRead(() => api.lookup(nopol, request.signal));
       if (!live()) return;
-      apply(result.outcome === 'FOUND' ? { kind: 'found', nopol, result } : { kind: 'not-found', nopol, requestId: result.request_id });
+      apply(result.outcome === 'FOUND' ? { kind: 'found', nopol, result } : { kind: 'not-found', nopol, provider: result.provider, requestId: result.request_id });
       historyRefresh.current?.();
     } catch (failure) {
       if (!live() || isAbort(failure)) return;
@@ -126,7 +126,9 @@ export function Scanner() {
     const nopol = normalizeNopol(value);
     if (!nopol) return;
     const active = current.current;
-    if (active.kind !== 'idle' && active.nopol === nopol && (active.kind === 'loading' || active.kind === 'found' || active.kind === 'not-found')) return;
+    // Duplicate guard only while a request for this plate is in flight. After FOUND/NOT_FOUND a new Enter
+    // for the same plate is a new upstream lookup (no cache; history keeps the raid's first snapshot).
+    if (active.kind === 'loading' && active.nopol === nopol) return;
     // Tutup keyboard agar hasil terlihat utuh di layar.
     input.current?.blur();
     void lookup(nopol);
@@ -178,11 +180,13 @@ export function Scanner() {
         <Skeleton className="h-4 w-3/4" />
       </div>}
       {state.kind === 'found' && <VehicleResultCard result={state.result} />}
-      {state.kind === 'not-found' && <section className="vehicle-result" aria-labelledby="not-found-nopol">
+      {state.kind === 'not-found' && <section className="vehicle-result" aria-labelledby="not-found-nopol" data-provider={state.provider}>
         <div className="flex flex-wrap items-center justify-between gap-2"><p className="eyebrow">Hasil pemeriksaan</p><LookupOutcomeBadge outcome="NOT_FOUND" /></div>
         <h2 id="not-found-nopol" className="result-nopol">{state.nopol}</h2>
-        <p className="font-semibold">Data kendaraan tidak ditemukan</p>
-        <p className="supporting">Periksa kembali NOPOL yang diketik.</p>
+        {/* Potensi absence means "not in the snapshot", never a claim that the vehicle is unregistered at BPAD. */}
+        <p className="font-semibold">{state.provider === 'POTENSI_NTT' ? 'Data kendaraan tidak ada di snapshot Potensi NTT' : 'Data kendaraan tidak ditemukan'}</p>
+        <p className="supporting">{state.provider === 'POTENSI_NTT' ? 'Periksa kembali NOPOL yang diketik. Snapshot dapat belum memuat kendaraan ini; ini bukan kepastian kendaraan tidak terdaftar di BPAD.' : 'Periksa kembali NOPOL yang diketik.'}</p>
+        <p className="supporting">Sumber data: <span className="font-medium">{providerLabel(state.provider)}</span></p>
       </section>}
       {raid && state.kind === 'idle' && (value === '' || value === NOPOL_PREFIX) && <EmptyState title="Siap memeriksa kendaraan.">Ketik nomor polisi. Hasil pajak dan STNK akan tampil di sini.</EmptyState>}
     </div>

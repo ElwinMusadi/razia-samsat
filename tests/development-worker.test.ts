@@ -6,7 +6,6 @@ import { afterAll, beforeAll, expect, it } from 'vitest';
 import { DEVELOPMENT_CONFIG, DEVELOPMENT_LOCATION, DEVELOPMENT_USERS, buildDevelopmentSeedStatements } from '../scripts/development';
 import { PROJECT_ROOT } from '../scripts/lib';
 import { hashPassword, verifyPassword } from '../shared/password';
-import { vehicleCacheKey } from '../worker/vehicle/cache';
 import { applyTestMigrations, resetTestD1, type TestD1 } from './helpers/miniflare';
 
 const ORIGIN = 'http://127.0.0.1:8787';
@@ -48,7 +47,7 @@ it('bundled development entry blocks remote API/assets and invalid marker before
   expect(assetCalls).toBe(previous); expect(outbound).toBe(0);
   expect((await mf!.dispatchFetch(`${ORIGIN}/login`)).status).toBe(200); expect(assetCalls).toBe(previous+1);
 });
-it('real login/raid/cache/history/admin preserve existing rules with four simulated outcomes',async()=>{
+it('real login/raid/history/admin preserve existing rules with four simulated outcomes and no cache',async()=>{
   const officerLogin=await post('/api/auth/login',{username:DEVELOPMENT_USERS[1].username,password:'password'}); expect(officerLogin.status).toBe(200);
   const officer=tokenFrom(officerLogin); expect(await officerLogin.json()).toMatchObject({user:{id:DEVELOPMENT_USERS[1].id,role:'OFFICER'}});
   expect((await post('/api/auth/login',{username:DEVELOPMENT_USERS[1].username,password:'password'})).status).toBe(409);
@@ -61,16 +60,28 @@ it('real login/raid/cache/history/admin preserve existing rules with four simula
     expect(await response.json()).toMatchObject(tax ? {outcome:'FOUND',source:'LIVE',vehicle:{nopol,tax_status:tax,stnk_status:stnk}} : {outcome:'NOT_FOUND'});
   }
   const first=await db.prepare('SELECT * FROM check_logs WHERE raid_session_id=? AND nopol=?').bind(raid.id,'DH1823HJ').first();
-  const repeat=await post('/api/vehicle-lookups',{nopol:'DH1823HJ'},officer); expect(await repeat.json()).toMatchObject({source:'CACHE'});
+  // No cache: the repeated plate is simulated again (LIVE), stays zero-outbound and never changes the first snapshot.
+  const repeat=await post('/api/vehicle-lookups',{nopol:'DH1823HJ'},officer); expect(await repeat.json()).toMatchObject({source:'LIVE',provider:'BPAD',snapshot_synced_at:null});
   expect(await db.prepare('SELECT * FROM check_logs WHERE raid_session_id=? AND nopol=?').bind(raid.id,'DH1823HJ').first()).toEqual(first);
+  expect(first).toMatchObject({source:'LIVE',provider:'BPAD'});
   expect(await db.prepare('SELECT COUNT(*) AS n FROM check_logs').first('n')).toBe(4);
   const summary=await get(`/api/raid-sessions/${raid.id}/summary`,officer); expect(await summary.json()).toMatchObject({summary:{total_checks:4,found:3,not_found:1,tax_active:1,tax_expired:2,tax_unknown:0}});
   expect((await get('/api/admin/users',officer)).status).toBe(403); expect((await get('/api/admin/users',admin)).status).toBe(200);
   const other=await post('/api/raid-sessions',{location_id:DEVELOPMENT_LOCATION.id,lane:'ADMIN UAT'},admin); const otherRaid=await other.json() as {id:string};
   expect((await get(`/api/raid-sessions/${otherRaid.id}/checks`,officer)).status).toBe(404);
-  const {VEHICLE_CACHE:kv}=await mf!.getBindings<Pick<Env,'VEHICLE_CACHE'>>(); const cache=await kv.get(await vehicleCacheKey('DH1823HJ'),'json') as Record<string,unknown>;
-  expect(Object.keys(cache).sort()).toEqual(['brand','color','nopol','owner_name','provider_fetched_at','stnk_due_date','tax_due_date','type']);
-  expect(await kv.get(await vehicleCacheKey('DH6162RK'))).toBeNull(); expect(outbound).toBe(0);
+  const {VEHICLE_CACHE:kv}=await mf!.getBindings<Pick<Env,'VEHICLE_CACHE'>>(); expect((await kv.list()).keys).toEqual([]); expect(outbound).toBe(0);
+  // Admin setting surface works in development; Potensi cannot be selected without the runtime secrets (fail closed, no outbound).
+  const setting=await get('/api/admin/vehicle-source',admin); expect(setting.status).toBe(200);
+  expect(await setting.json()).toMatchObject({setting:{provider:'BPAD',version:1,updated_by:null},potensi_credentials_configured:false});
+  expect((await get('/api/admin/vehicle-source',officer)).status).toBe(403);
+  const blocked=await mf!.dispatchFetch(`${ORIGIN}/api/admin/vehicle-source`,{method:'PUT',headers:{Origin:ORIGIN,'Content-Type':'application/json',Cookie:`__Host-rs_session=${admin}`},body:JSON.stringify({provider:'POTENSI_NTT',expected_version:1})});
+  expect(blocked.status).toBe(422); expect(await blocked.json()).toMatchObject({error:{code:'VEHICLE_SOURCE_CREDENTIALS_MISSING'}});
+  // A Potensi setting written out-of-band still stays zero-outbound: the development entry simulates both providers.
+  await db.prepare("INSERT INTO vehicle_source_settings(version,provider,updated_by,updated_at) VALUES(2,'POTENSI_NTT',?,unixepoch())").bind(DEVELOPMENT_USERS[0].id).run();
+  const potensi=await post('/api/vehicle-lookups',{nopol:'DH1823HJ'},officer); expect(potensi.status).toBe(200);
+  expect(await potensi.json()).toMatchObject({outcome:'FOUND',source:'LIVE',provider:'POTENSI_NTT',snapshot_synced_at:expect.stringMatching(/^\d{4}-\d{2}-\d{2}T.*Z$/)});
+  expect(await db.prepare('SELECT * FROM check_logs WHERE raid_session_id=? AND nopol=?').bind(raid.id,'DH1823HJ').first()).toEqual(first);
+  expect(outbound).toBe(0); expect((await kv.list()).keys).toEqual([]);
 },60000);
 it('repeated seed preserves modified credentials/role/activity and existing different identity',async()=>{
   const replacement=await hashPassword('Synthetic replacement',100000);
@@ -103,5 +114,7 @@ it('preserves existing usernames and locations with different UUIDs, failing clo
 it('actual production bundle excludes development source, scenarios, credentials and fixture identities',async()=>{
   const production=await readFile(await bundle(),'utf8');
   for(const forbidden of ['DevVehicleSource','developmentDueDate','DH1823HJ','DH7112DP','DH5871GD','DH6162RK','elwinbessiesura','yusuf.adoe',...DEVELOPMENT_USERS.map(user=>user.id),DEVELOPMENT_LOCATION.id,'Pemilik Sintetik UAT']) expect(production).not.toContain(forbidden);
-  expect(production).toContain('dash.bpad.nttprov.go.id');
+  expect(production).toContain('dash.bpad.nttprov.go.id'); expect(production).toContain('api.uptdpenda-kupang.web.id/api/v1/vehicle');
+  // No vehicle cache paths survive in the shipped bundle.
+  for(const forbidden of ['VEHICLE_CACHE','vehicleCacheKey','expirationTtl','cache_read_failed','cache_write_failed']) expect(production).not.toContain(forbidden);
 },180000);

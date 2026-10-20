@@ -15,7 +15,7 @@ describe('BPAD normalized contract', () => {
     expect(fetcher).toHaveBeenCalledTimes(1);
     expect(fetcher.mock.calls[0][0]).toBe(BPAD_ENDPOINT);
     expect(fetcher.mock.calls[0][1]).toMatchObject({ method: 'POST', body: '{"nopol":"DH1234ZZ"}', redirect: 'manual', headers: { 'content-type': 'application/json' } });
-    expect(result).toEqual({ outcome: 'FOUND', vehicle: { nopol: 'DH1234ZZ', owner_name: 'Synthetic Owner', brand: 'Synthetic Brand', type: 'Synthetic Type', color: 'Synthetic Color', tax_due_date: '2026-10-07', stnk_due_date: '2027-10-07', provider_fetched_at: '2026-10-07T00:00:00.000Z', source: 'LIVE' } });
+    expect(result).toEqual({ outcome: 'FOUND', vehicle: { nopol: 'DH1234ZZ', owner_name: 'Synthetic Owner', brand: 'Synthetic Brand', type: 'Synthetic Type', color: 'Synthetic Color', tax_due_date: '2026-10-07', stnk_due_date: '2027-10-07', provider_fetched_at: '2026-10-07T00:00:00.000Z', snapshot_synced_at: null, source: 'LIVE' } });
     expect(JSON.stringify(result)).not.toContain('forbidden');
   });
   it('verified failed metadata produces generic absence without raw pesan', async () => {

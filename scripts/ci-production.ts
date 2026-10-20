@@ -240,12 +240,42 @@ function noFallback(deps: CiDeps): void {
   if (!deps.env.CLOUDFLARE_API_TOKEN || ['CLOUDFLARE_API_KEY','CLOUDFLARE_EMAIL','CF_API_KEY','CF_EMAIL','CF_API_TOKEN'].some(k=>!!deps.env[k])) fail('Token platform eksplisit wajib; fallback credential ditolak.');
   verifyEnv(deps);
 }
-function verifyBindings(b: unknown, compatDate: unknown, t: ProductionTarget): void {
+/** Exact runtime vars; any other value needs a separate review, never a CI change. */
+const EXPECTED_VARS: Record<string, string> = { PASSWORD_PBKDF2_ITERATIONS: '10', SESSION_TTL_SECONDS: '43200', RETENTION_POLICY: 'UNSET' };
+/** Worker runtime secrets for the Potensi NTT provider. Both or neither; never one. */
+export const POTENSI_SECRET_BINDINGS = ['POTENSI_ACCESS_CLIENT_ID', 'POTENSI_ACCESS_CLIENT_SECRET'] as const;
+const BASE_BINDING_COUNT = 6;
+/**
+ * `active`   = bindings of the currently deployed version (from `versions view <active id>`).
+ * `settings` = script settings metadata; may describe a staged version, so it is checked separately.
+ * `candidate` = the uploaded version; it must already carry both secrets or it is never activated.
+ */
+export type BindingPhase = 'active' | 'settings' | 'candidate';
+export function verifyBindings(b: unknown, compatDate: unknown, t: ProductionTarget, phase: BindingPhase): void {
   if (compatDate !== '2026-10-07' || !Array.isArray(b)) fail('Settings Worker berbeda.');
   const bindings = b.map(object);
-  const expected={PASSWORD_PBKDF2_ITERATIONS:'10',SESSION_TTL_SECONDS:'43200',RETENTION_POLICY:'UNSET'};
-  if(bindings.length!==6||!bindings.some(x=>x.name==='DB'&&x.type==='d1'&&x.id===t.database)||!bindings.some(x=>x.name==='VEHICLE_CACHE'&&x.type==='kv_namespace'&&x.namespace_id===t.namespace)||!bindings.some(x=>x.name==='ASSETS'&&x.type==='assets'))fail('CI tidak diizinkan mengubah resources/secrets/bindings.');
-  for(const[name,value]of Object.entries(expected))if(!bindings.some(x=>x.name===name&&x.type==='plain_text'&&x.text===value))fail('Variables runtime berbeda; review terpisah diperlukan.');
+  const names = bindings.map(x => x.name);
+  // Exact unique names: duplicates, aliases and unknown bindings are rejected before any shape check.
+  if (names.some(name => typeof name !== 'string') || new Set(names).size !== names.length) fail('CI tidak diizinkan mengubah resources/secrets/bindings.');
+  const resources: Record<string, (x: Record<string, unknown>) => boolean> = {
+    DB: x => x.type === 'd1' && x.id === t.database,
+    VEHICLE_CACHE: x => x.type === 'kv_namespace' && x.namespace_id === t.namespace,
+    ASSETS: x => x.type === 'assets',
+  };
+  for (const binding of bindings) {
+    const name = binding.name as string;
+    // Own-property lookups only: names such as `constructor` or `toString` must never match a prototype member.
+    if (Object.hasOwn(resources, name)) { if (!resources[name](binding)) fail('CI tidak diizinkan mengubah resources/secrets/bindings.'); }
+    else if (Object.hasOwn(EXPECTED_VARS, name)) { if (binding.type !== 'plain_text' || binding.text !== EXPECTED_VARS[name]) fail('Variables runtime berbeda; review terpisah diperlukan.'); }
+    else if ((POTENSI_SECRET_BINDINGS as readonly string[]).includes(name)) { if (binding.type !== 'secret_text') fail('CI tidak diizinkan mengubah resources/secrets/bindings.'); }
+    else fail('CI tidak diizinkan mengubah resources/secrets/bindings.');
+  }
+  for (const name of [...Object.keys(resources), ...Object.keys(EXPECTED_VARS)]) if (!names.includes(name)) fail(Object.hasOwn(EXPECTED_VARS, name) ? 'Variables runtime berbeda; review terpisah diperlukan.' : 'CI tidak diizinkan mengubah resources/secrets/bindings.');
+  const secrets = POTENSI_SECRET_BINDINGS.filter(name => names.includes(name)).length;
+  if (phase === 'candidate' && secrets !== POTENSI_SECRET_BINDINGS.length) fail('Kandidat upload wajib memuat tepat dua secret Potensi; aktivasi dibatalkan.');
+  // Reviewed transition: the active baseline is exactly six (before secrets) or exactly eight (both secrets).
+  if (secrets !== 0 && secrets !== POTENSI_SECRET_BINDINGS.length) fail('Secret Potensi parsial; review operator diperlukan.');
+  if (bindings.length !== BASE_BINDING_COUNT + secrets) fail('CI tidak diizinkan mengubah resources/secrets/bindings.');
 }
 type Active = {id:string;version:string};
 async function platform(deps: CiDeps,t:ProductionTarget,phase:PlatformPhase):Promise<Active> {
@@ -269,8 +299,13 @@ async function platform(deps: CiDeps,t:ProductionTarget,phase:PlatformPhase):Pro
   flags.set('confirm-dns-record',record.id);
   const fetchMetadata: typeof fetch=async(input,init)=>{if(init?.method&&init.method!=='GET')fail('Hanya metadata GET.');const url=new URL(typeof input==='string'?input:input instanceof URL?input.href:input.url);if(url.origin!=='https://api.cloudflare.com'||!url.pathname.startsWith('/client/v4/'))fail('Endpoint metadata ditolak.');const body=await read(url.pathname.slice('/client/v4'.length)+url.search);return new Response(JSON.stringify(body),{status:200});};
   await verifyDomain(t,deps.env.CLOUDFLARE_API_TOKEN,fetchMetadata,flags);
+  // The active baseline comes from the active version itself; /settings may describe a staged version.
+  const activeVersion=object(json(await deps.runWrangler(['versions','view',v.version_id,'--name',t.worker,'--json'])));
+  if(activeVersion.id!==v.version_id)fail('Versi aktif tidak dapat diverifikasi.');
+  const activeResources=object(activeVersion.resources);
+  verifyBindings(activeResources.bindings, object(activeResources.script_runtime).compatibility_date, t, 'active');
   const settings=object((await read(`/accounts/${t.account}/workers/scripts/${t.worker}/settings`)).result);
-  verifyBindings(settings.bindings, settings.compatibility_date, t);
+  verifyBindings(settings.bindings, settings.compatibility_date, t, 'settings');
   return{id:active.id,version:v.version_id};
 }
 export async function ciDeploy(deps: CiDeps): Promise<string> {
@@ -286,7 +321,7 @@ export async function ciDeploy(deps: CiDeps): Promise<string> {
   if(version.id!==id||annotations['workers/message']!==`git:${sha}`||annotations['workers/tag']!==`git-${sha}`)fail('Versi upload tidak cocok dengan commit build.');
   const resources = object(version.resources);
   const runtime = object(resources.script_runtime);
-  verifyBindings(resources.bindings, runtime.compatibility_date, t);
+  verifyBindings(resources.bindings, runtime.compatibility_date, t, 'candidate');
   if(context(deps)!==sha)fail('Commit sudah stale setelah upload; tidak diaktifkan.');readReceipt(deps,sha);
   const after=await platform(deps,t,'post_upload');if(before.id!==after.id||before.version!==after.version)fail('Deployment berubah bersamaan; versi baru tidak diaktifkan.');
   verifyEnv(deps);

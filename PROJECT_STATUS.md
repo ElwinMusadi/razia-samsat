@@ -6,7 +6,156 @@ Aplikasi Razia Kendaraan SAMSAT Kota Kupang. Blueprint di `docs/AI Product Bluep
 
 ## Current Phase
 
-REDESIGN UI/UX + FITUR LAPANGAN SELESAI & MERGE KE MAIN (2026-10-13). Lihat "Redesign UI/UX oleh Muse (2026-10-12 – 2026-10-13)" di bawah. Test 1470/1470 hijau, migrasi D1 0004 teraplikasi (lokal & remote). Kesepakatan baru: pekerjaan selanjutnya langsung di branch `main` (tanpa branch fitur terpisah).
+**FITUR SUMBER DATA GLOBAL BPAD / POTENSI NTT DAN PENGHAPUSAN CACHE LOOKUP — IMPLEMENTASI LOKAL SELESAI 2026-10-20, DI-COMMIT KE `main` LOKAL ATAS INSTRUKSI USER, BELUM PUSH, BELUM ADA OPERASI PRODUKSI.** Detail dan bukti: bagian "Hasil Implementasi Lokal — 2026-10-20" di bawah.
+
+- Baseline repository yang diverifikasi pada handoff: branch `main`, HEAD `28087aa3ff8238af5f0c45bf6544e13fe44fd5d1` (`feat(ui): terapkan glassmorphism nyata pada seluruh aplikasi`). Selalu verifikasi ulang sebelum bekerja; ini bukan asumsi HEAD tetap atau bukti remote/produksi terkini.
+- Ada perubahan operator existing pada `.gitignore` (`docs/log`). Jangan dibuang, ditimpa, atau ikut di-stage otomatis. Staging kosong pada awal pembaruan dokumen ini.
+- Glassmorphism v2 sudah diimplementasikan dan dipush pada 2026-10-13. Gate lokal terakhir untuk kandidat tersebut: 37 file / 1538 test PASS, typecheck/build PASS, lint 0 error dengan 9 warning existing; review independen PASS WITH NOTES. Hasil ini historis, bukan hasil test fitur provider baru. Theme `#E5EDF8`, public cache `v4`; notch dan koreksi overlap footer Scanner tetap dipertahankan.
+- Keberhasilan deployment/acceptance produksi sebelumnya berasal dari laporan operator. Deployment, resource, token/grant, dan konektivitas Potensi NTT tidak diverifikasi live pada handoff ini.
+- Pekerjaan dilakukan di branch `main` sesuai kesepakatan user, tetapi tidak ada izin otomatis untuk stage/commit/push. Push `main` dapat memicu Workers Builds dan deployment.
+- Pembaruan 2026-10-19 hanya dokumentasi. Pembaruan 2026-10-20 menambah perubahan runtime, schema (migrasi baru `0005`), test, UI, dan guard CI secara **lokal saja**. Tidak ada secret, migrasi remote, deployment, atau operasi Cloudflare.
+
+## Hasil Implementasi Lokal — 2026-10-20
+
+Status: **LOKAL SELESAI, GATE PASS, REVIEW INDEPENDEN PASS WITH NOTES (notes ditindaklanjuti)**. Di-commit ke `main` lokal atas instruksi eksplisit user (2026-10-20); belum push. Perubahan operator `.gitignore` tidak ikut di-commit. Semua metadata live tetap **NOT VERIFIED**.
+
+Catatan credential: operator menyatakan Client ID/Secret Potensi tersimpan di file lokal `.env` (diabaikan Git, tidak di-commit). File lokal **bukan** Worker runtime secret: Worker produksi dan guard CI tetap memerlukan `POTENSI_ACCESS_CLIENT_ID` dan `POTENSI_ACCESS_CLIENT_SECRET` sebagai secret Cloudflare. Nilai credential tidak dicatat di dokumen ini.
+
+### Kondisi awal yang diverifikasi ulang
+
+- Branch `main`, HEAD `28087aa3ff8238af5f0c45bf6544e13fe44fd5d1`, staging kosong. Perubahan operator: `.gitignore` (`docs/log`) dan `PROJECT_STATUS.md`. Keduanya dipertahankan dan tidak di-stage.
+- Migrasi aktual `0001`–`0004`; nomor `0005` tersedia. Wrangler terpasang `4.148.0`, Node `24.21.0`.
+- Tidak membaca `.env`, `.dev.vars`, credential, atau nilai token. Repository `api-potensi-ntt` hanya dibaca (README, `src/potensi/shape.ts`, `src/potensi/repository.ts`, `src/private-api/contracts.ts`, `src/auth/*`, `src/index.ts`, `tests/api.test.ts`, `tests/support.ts`) dan tidak diubah. Format `ditarik_pada` diverifikasi dari source `potensi-tarik/src/tarik.ts` (`new Date().toISOString()`); kolom tanggal bertipe teks `YYYY-MM-DD` menurut fixture upstream.
+- Sempat menjalankan `git stash` lalu `git stash pop` sekali untuk membandingkan baseline lint; diverifikasi sesudahnya stash kosong, staging kosong, dan diff operator utuh.
+
+### Keputusan arsitektur yang diterapkan
+
+1. **Database (`migrations/0005_vehicle_source.sql`, forward-only):** tabel `vehicle_source_settings` append-only yang sekaligus audit (`version` PK, `provider` CHECK `BPAD|POTENSI_NTT`, `updated_by` FK `users` RESTRICT, `updated_at`). Seed versi 1 = `BPAD` tanpa aktor. Trigger insert menegakkan CAS (versi = max+1), aktor ADMIN aktif, provider harus berubah, jam tidak mundur. Trigger UPDATE dan DELETE menolak semua perubahan, sehingga baris terbaru tidak bisa dihapus untuk mengaktifkan provider lama secara diam-diam. `admin_audit_logs` tidak diperluas karena CHECK target-nya wajib user/session/location.
+2. **Provenance:** `check_logs.provider` nullable dengan CHECK. Baris lama tetap `NULL` dan `source` lama (termasuk `CACHE`) tidak diubah. Baris baru selalu `source='LIVE'` dan `provider` dari snapshot awal request.
+3. **Lookup tanpa cache:** `worker/vehicle/cache.ts` dan test-nya dihapus; event log `cache_*` dihapus. Kode Worker tidak mereferensikan `VEHICLE_CACHE`, Cache API, atau memori. Binding `VEHICLE_CACHE` tetap di config dan tidak digunakan; namespace/data KV tidak disentuh. Provider dibaca dalam satu statement D1 bersama auth/raid di awal; revalidasi akhir hanya auth/raid, sehingga request yang berjalan menyelesaikan provider awalnya. Setting hilang/invalid atau Potensi tanpa dua secret menghasilkan `503 VEHICLE_SOURCE_UNAVAILABLE` tanpa fallback. Tidak ada retry.
+4. **Adapter Potensi (`worker/vehicle/potensi.ts`):** GET tetap `https://api.uptdpenda-kupang.web.id/api/v1/vehicle/{nopol}` dengan header `CF-Access-Client-Id/Secret`, `redirect: 'manual'`, body ≤ 64 KiB, satu deadline 5000 ms untuk fetch + body. FOUND hanya `status=vehicle_found`, `vehicle_status=found`, NOPOL cocok; `njkb_status` diabaikan. NOT_FOUND hanya HTTP 404 dengan envelope `vehicle_not_found` lengkap. 401/403 menjadi `UPSTREAM_FORBIDDEN` (502, bukan logout Razia); 429 `UPSTREAM_BUSY` dengan Retry-After disanitasi; 504 `TIMEOUT`; HTML/route 404/lainnya `UPSTREAM_ERROR`. Null eksplisit pada nama/merek/tipe/warna sah; key/blok hilang atau tipe salah `UPSTREAM_MALFORMED`. `synced_at` wajib ISO UTC berakhiran `Z`. Hanya field yang diperlukan diproyeksikan. Transport BPAD/Potensi berbagi `worker/vehicle/transport.ts`.
+5. **Admin API (`worker/vehicle-source.ts`):** `GET/PUT /api/admin/vehicle-source`, ADMIN-only dengan auth sesi persis + CSRF existing, tanpa query, body tepat `{provider, expected_version}`. Konflik 409 `VEHICLE_SOURCE_CONFLICT`; Potensi tanpa secret 422 `VEHICLE_SOURCE_CREDENTIALS_MISSING`; no-op idempoten bila provider sama pada versi yang sama. Respons hanya membawa boolean `potensi_credentials_configured`; presence bukan bukti grant live.
+6. **UI:** halaman `/admin/settings` ditautkan dari Kelola pengguna; bottom navigation tetap lima tujuan. Simpan memakai konfirmasi; 409/jaringan/5xx mengunci form sampai muat ulang (tanpa replay). Scanner: guard duplikat hanya saat `loading` NOPOL sama; setelah FOUND/NOT_FOUND, Enter NOPOL sama memicu tepat satu request baru. Kartu hasil menampilkan "Sumber data" dan, untuk Potensi, "snapshot BPAD per <WITA>" (bukan klaim LIVE); field null tampil "Tidak tersedia". NOT_FOUND Potensi memakai copy "tidak ada di snapshot", bukan klaim tidak terdaftar di BPAD. Riwayat menampilkan provider; baris lama tetap Langsung/Cache. Glassmorphism, notch, dan footer tidak diubah.
+7. **Development:** entry development mensimulasikan kedua provider (zero-outbound). Karena dev tidak punya secret, Potensi tidak bisa dipilih dari UI dev (fail-closed, disengaja).
+8. **Guard CI (`scripts/ci-production.ts`):** nama unik exact, tipe exact, ID D1/KV exact, nilai vars `10/43200/UNSET` exact, dua secret `secret_text` exact, pencocokan nama hanya own-property. Baseline aktif dibaca dari `versions view <active version_id>` (ID dari `deployments list`) terpisah dari `/settings`; keduanya wajib tepat 6 atau tepat 8. Kandidat upload wajib tepat 8 sebelum aktivasi. Tujuh, secret parsial, duplikat, alias/asing, drift, dan perubahan deployment bersamaan ditolak. Tidak ada flag bypass environment. Tooling produksi lain (`production-config.ts`) tidak berubah karena secret tidak berada di file config.
+
+### Hasil gate aktual (lokal, 2026-10-20)
+
+| Gate | Hasil |
+| --- | --- |
+| `npm run typecheck` | PASS (app, worker, tools) |
+| `npm run lint` | PASS, 0 error, 9 warning (sama dengan baseline) |
+| `npm test` | PASS, 39 file / 1623 test |
+| `VITE_APP_MODE=production npm run build` | PASS |
+| `npm audit --audit-level=high` | PASS, 0 vulnerabilities |
+
+Test terarah baru/diperbarui membuktikan: dua lookup NOPOL sama = dua request upstream; nol akses KV (proxy yang menghitung akses + namespace kosong) di BPAD dan Potensi; satu snapshot history per raid/NOPOL; perubahan sumber berlaku lintas pengguna; provider konsisten untuk request berjalan; ADMIN/auth/CSRF/CAS/race dua admin/audit atomik; nullable dan absence; 401/403/429/network/timeout/malformed tidak menjadi NOT_FOUND; migrasi fresh dan upgrade populated `0004→0005` mempertahankan data; development zero-outbound; bundle produksi tanpa jalur cache; guard CI menolak mismatch binding/resource/secret. Semua memakai fixture sintetis, D1/workerd lokal, dan upstream mock. Tidak ada API kendaraan nyata yang dipanggil.
+
+### Review independen
+
+Hasil: tidak ada blocker/major. Temuan minor yang sudah ditindaklanjuti: DELETE pada tabel setting kini ditolak trigger; `synced_at` dengan kalender mustahil kini 502 malformed (sebelumnya 500); guard CI memakai `Object.hasOwn`; tombol "Muat ulang" ikut merekonsiliasi status konflik. Catatan yang dibiarkan: Potensi tidak bisa dipilih di UI development tanpa secret; `/admin/settings` tidak menyorot item bottom nav dan tidak masuk allowlist navigasi offline service worker (sama dengan `/admin/locations`); DB tidak mewajibkan `provider` non-null pada baris baru karena kolom nullable diperlukan untuk baris lama.
+
+### Risiko rilis yang harus dipahami sebelum push
+
+- **Push kode ini ke `main` akan membuat CI deploy gagal** sampai versi upload memuat dua secret Potensi, karena kandidat wajib tepat delapan binding. Ini disengaja sesuai keputusan user, tetapi berarti push harus menunggu secret dan bukti pewarisan.
+- Kode baru membaca `vehicle_source_settings`; tanpa migrasi `0005` di D1 produksi, lookup akan gagal. Migrasi `0005` hanya menambah tabel/kolom nullable sehingga kompatibel dengan kode lama dan harus diterapkan **sebelum** aktivasi kode baru.
+- Format `synced_at` live dan grant/scope live **NOT VERIFIED**. Bila format live berbeda dari ISO `Z`, semua hasil Potensi FOUND akan menjadi 502 (fail-closed).
+- Rate limit Potensi 60 request/menit dibagi semua pengguna Razia; tanpa cache, lookup ulang ikut menghabiskan budget. Tidak ada rate limiter baru yang ditambahkan.
+
+### Runbook produksi — memerlukan izin terpisah untuk setiap langkah
+
+1. Commit lokal di `main` sudah dilakukan 2026-10-20. Push tetap memerlukan izin terpisah dan harus menunggu langkah 2–5.
+2. Backup/inspeksi read-only D1 produksi, lalu terapkan `0005` melalui wrapper migrasi existing (`npm run production:migrate`) dengan konfirmasi target; verifikasi skema dan seed `BPAD` versi 1.
+3. Buat service token Access khusus Razia, policy Service Auth pada aplikasi Access hostname Potensi, dan tambahkan grant di `AUTH_ACCESS_GRANTS_JSON` milik `api-potensi-ntt` tanpa menimpa grant lain: `access_common_name` terverifikasi, `principal` unik (mis. `razia-samsat`), scope `vehicle:read owner:read registration:read tax:read`. Deploy perubahan grant di repository Potensi adalah operasi terpisah.
+4. Simpan `POTENSI_ACCESS_CLIENT_ID` dan `POTENSI_ACCESS_CLIENT_SECRET` sebagai Worker runtime secret melalui terminal operator. Help `wrangler versions secret put` terpasang (4.148.0) diverifikasi lokal; perilaku "staging tanpa aktivasi" dan pewarisan secret ke `versions upload` CI berikutnya **NOT VERIFIED** di akun ini. Jangan memakai `wrangler secret put` biasa karena dapat langsung men-deploy.
+5. Verifikasi read-only bahwa versi yang di-stage memuat tepat delapan binding, lalu push. Guard CI memeriksa kandidat upload tepat delapan sebelum aktivasi; bila secret tidak terwariskan, deploy berhenti dan guard tidak boleh dilonggarkan.
+6. Setelah aktif, BPAD tetap default. Uji smoke dengan akun sintetis; pindah ke Potensi hanya lewat halaman Pengaturan oleh ADMIN, lalu verifikasi satu lookup terkontrol yang disetujui operator.
+7. Setelah rilis stabil, rencanakan pengetatan baseline aktif menjadi wajib delapan binding.
+
+## Keputusan Terbaru — Sumber Data Global dan Tanpa Cache
+
+Bagian ini menggantikan keputusan historis yang bertentangan di bawah. Catatan fase lama dipertahankan sebagai evidence, bukan instruksi aktif.
+
+1. Admin dapat memilih sumber NOPOL **BPAD** atau **Potensi NTT**. Pilihan berlaku global untuk semua pengguna, bukan per-browser, per-akun, atau per-sesi razia.
+2. **TANPA CACHE KENDARAAN untuk kedua provider.** Setiap lookup baru yang sah, termasuk NOPOL yang pernah dicari, harus melakukan request upstream. Jangan membaca/menulis KV, Cache API, memory/result cache, browser storage, atau service-worker cache untuk hasil kendaraan. `Cache-Control: no-store` API dipertahankan.
+3. Larangan cache tidak menghapus riwayat pemeriksaan. **D5-01 tetap:** satu snapshot pertama per `(raid_session_id, normalized_nopol)`, tidak ditimpa oleh lookup ulang. **D5-02 tetap:** snapshot yang sah setelah final authorization boleh dicatat asinkron walau sesi/raid berubah sebelum INSERT. Lookup ulang tetap memanggil upstream meski tidak menambah record history.
+4. Scanner tetap Enter-only, bukan debounce otomatis. Cegah duplicate submission selama request sedang berjalan (`loading`). Setelah `found` atau `not-found`, Enter baru untuk NOPOL yang sama harus memicu tepat satu request upstream baru tanpa wajib X/ubah input terlebih dahulu. Guard saat ini pada `src/scanner.tsx` masih menolak NOPOL sama pada ketiga state; ini perlu diubah tanpa melemahkan anti-stale/auth guard.
+5. BPAD tetap default saat fitur pertama dirilis. Tidak ada silent fallback Potensi ke BPAD atau sebaliknya. Request yang sudah berjalan menyelesaikan provider yang ditangkap saat mulai; perubahan global berlaku pada lookup berikutnya setelah perubahan tersimpan.
+6. Binding/namespace `VEHICLE_CACHE` dapat dipertahankan sementara sebagai resource tidak digunakan. Tidak ada izin menghapus namespace, isi KV, atau binding secara otomatis. Kode dan test harus membuktikan nol akses cache pada lookup.
+7. Perubahan provider disimpan server-side di D1, dibatasi ADMIN, memakai CSRF/auth existing, optimistic concurrency/version, serta audit perubahan atomik. Jangan menyimpan setting otoritatif hanya di localStorage, memory isolate, atau environment build.
+8. Potensi adalah snapshot BPAD, bukan data BPAD live. Label provider/freshness harus membedakan waktu request API dari waktu penarikan snapshot. Jangan menyebut transport `LIVE` sebagai jaminan snapshot terbaru.
+9. Tetap minimization: owner name hanya pada hasil yang diizinkan, tidak otomatis ditambahkan ke history. Jangan mengekspos/menyimpan/log raw upstream, NIK, alamat, nomor rangka/mesin, token, JWT, atau field potensi/nominal yang tidak diperlukan.
+10. Parameter produksi existing (PBKDF2 `10`, TTL `43200`, retention `UNSET`), autentikasi pengguna, ownership raid, dan Glassmorphism tidak diubah oleh fitur ini. PBKDF2 `10` tetap risiko keamanan yang sudah diterima user, bukan klaim aman.
+
+### Keputusan historis yang disupersede
+
+- AD-01/provider tunggal BPAD diperluas menjadi pemilihan global BPAD/Potensi; adapter harus tetap server-side.
+- AD-07, persetujuan cache owner name/TTL 300 detik, dan seluruh jalur LIVE/CACHE historis tidak lagi menjadi kebijakan lookup baru. Belum dihapus dari kode pada handoff ini. Data history lama dengan `source=CACHE` tetap sah dan tidak boleh dihapus/ditulis ulang.
+- Catatan debounce 600ms telah disupersede Enter-only sejak 2026-10-12/13; jangan menghidupkannya kembali.
+- Bagian Overall Status, Pending, Known Issues, dan validation counts fase lama di bawah bersifat historis. Prioritas instruksi: keputusan user terbaru, bagian terkini ini, lalu blueprint/riwayat yang tidak bertentangan.
+
+## Kontrak Potensi NTT — Terverifikasi dari Source Lokal, Bukan Live
+
+Referensi read-only yang diizinkan user: `D:\Herd\api-potensi-ntt\README.md`, `src/potensi/shape.ts`, `src/private-api/contracts.ts`, serta `src/auth/access.ts` dan `contracts.ts`. Jangan membaca file credential proyek tersebut.
+
+- Endpoint tetap: `GET https://api.uptdpenda-kupang.web.id/api/v1/vehicle/{normalized_nopol}`. Host/path bukan input bebas admin; cegah SSRF dan redirect credential.
+- API privat menggunakan Cloudflare Access service token. Razia mengirim `CF-Access-Client-Id` dan `CF-Access-Client-Secret`; Access memasok assertion yang diverifikasi Worker Potensi. Jangan membuat sendiri JWT atau meminta user mengirim token melalui chat.
+- Usulan nama Worker runtime secrets Razia: `POTENSI_ACCESS_CLIENT_ID` dan `POTENSI_ACCESS_CLIENT_SECRET`. Nama ini belum menjadi binding runtime yang diimplementasikan/disiapkan.
+- Scope minimal untuk field aplikasi: `vehicle:read`, `owner:read`, `registration:read`, `tax:read`. Tidak memerlukan `vehicle:full`, `njkb:read`, atau `bpad:raw`.
+- Grant pada API Potensi di array `AUTH_ACCESS_GRANTS_JSON`: `access_common_name` yang terverifikasi, `principal` unik misalnya `razia-samsat`, dan empat scope di atas. Jangan menebak common_name dari display name token. Jangan menimpa grant konsumen lain; konfigurasi grant invalid dapat menggagalkan seluruh konsumen.
+- README menyatakan rate limit 60 request/menit/konsumen dan domain dipindahkan ke Worker `api-potensi-ntt` pada 2026-10-18. Ini informasi repository upstream, bukan verifikasi konfigurasi live. Semua pengguna Razia berbagi principal/budget konsumen yang sama; handle 429 tanpa retry storm, fallback diam-diam, atau cache tersembunyi.
+
+| Field Razia | Field respons Potensi |
+| --- | --- |
+| NOPOL | `nopol` |
+| Nama pemilik | `owner.name` |
+| Merek / tipe / warna | `vehicle.brand` / `vehicle.type` / `vehicle.color` |
+| Jatuh tempo pajak | `tax.notice_valid_until` |
+| Jatuh tempo STNK | `registration.stnk_valid_until` |
+| Waktu penarikan snapshot | `potensi.synced_at` |
+
+- FOUND: periksa kontrak `status=vehicle_found`, `vehicle_status=found` dan kecocokan NOPOL; `njkb_status=not_found` bukan kendaraan tidak ditemukan.
+- HTTP 404 hanya boleh menjadi outcome absence bila envelope/status error upstream yang diketahui benar-benar menyatakan `vehicle_not_found`. Access HTML, route 404, 401/403, 429, network, timeout, dan payload invalid tetap error, bukan NOT_FOUND.
+- Absence Potensi berarti NOPOL tidak ada di snapshot, termasuk UPT belum ditarik. Copy UI tidak boleh mengklaim kendaraan tidak terdaftar di BPAD.
+- Bedakan field wajib yang hilang karena scope/kontrak salah dari explicit `null` yang sah. Parser Razia sekarang mewajibkan `owner_name`, `brand`, `type`, dan `color` nonkosong. Tetapkan dan uji nullability keempatnya sesuai source upstream: explicit `null` yang sah ditampilkan sebagai tidak tersedia, sedangkan key yang hilang atau tipe salah tetap invalid. Selaraskan backend/client/UI/test, bukan mengganti dengan string data palsu.
+- Format tanggal, timestamp `synced_at`, freshness, dan nullable fields wajib dibuktikan dengan fixture sintetis dari source/tests upstream. Jangan menganggap `synced_at` UTC ISO tanpa memeriksa kontraknya. Tidak perlu memanggil API dengan NOPOL nyata untuk menulis adapter/test.
+- Tidak ada service token/grant/secret yang dibuat, tidak ada API kendaraan dipanggil, dan belum ada audit permission/topologi antar-Worker aktual. Status live: **NOT VERIFIED**.
+
+## Rencana Implementasi untuk Claude — Dijalankan Lokal 2026-10-20
+
+Langkah 1–8 di bawah sudah dijalankan secara lokal; lihat "Hasil Implementasi Lokal — 2026-10-20". Teks rencana dipertahankan sebagai acuan.
+
+1. **Preflight:** baca status ini, blueprint, source dan tests aktual; audit branch/HEAD/staging/diff dan perubahan operator. Recheck migrasi terakhir; saat ini `0001`–`0004` ada. Jangan langsung menyalin nama/jumlah dari riwayat lama.
+2. **Architecture gate:** tetapkan kontrak setting global (provider/version/updated_by/updated_at), endpoint admin/read, schema audit, provenance per lookup/history, semantik nullable dan snapshot absence. Pertahankan D5-01/D5-02 dan jangan mengubah record historis tanpa dasar yang jelas. Pilih tabel audit khusus atau perluasan audit existing lewat forward migration setelah meninjau CHECK/trigger; jangan memutuskan melalui patch ad-hoc.
+3. **Database:** tambahkan migration berikutnya saja (usulan `0005_vehicle_source.sql` jika nomor masih tersedia). Default BPAD; enum/CHECK, FK/integritas, CAS/version, dan audit atomik. Uji fresh/upgrade populated serta preservation/rollback. Jangan edit migration existing atau menjalankan migration produksi.
+4. **Backend:** hapus seluruh jalur cache lookup BPAD maupun Potensi; pilih provider global dari D1 tanpa cache setting lintas isolate. Implementasikan adapter Potensi endpoint tetap, bounded body, deadline fetch+body, redirect ditolak, strict mapping/date/NOPOL/response, minimization, no-store dan error aman. Scope upstream 401/403 tidak boleh dianggap sesi login Razia expired. Jangan auto-fallback atau auto-retry. Baca setting pada awal setiap lookup dalam snapshot yang konsisten dengan konteks auth/raid bila memungkinkan; final revalidation keamanan tetap.
+5. **Admin API/UI:** ADMIN-only GET/update, CSRF/body/query allowlist, CAS conflict dan reconciliation untuk mutasi ambigu. Konfirmasi berlaku untuk semua pengguna; setting hilang/invalid fail-closed, bukan reset BPAD diam-diam. Potensi tidak dapat dipilih bila credential belum tersedia; kesiapan nama/presence bukan bukti permission live. Tambah Pengaturan di area Admin tanpa memadatkan bottom nav. Pertahankan glass/notch/footer dan Enter-only; tampilkan provider/snapshot freshness secara ringkas tanpa menambah PII.
+6. **CI/type guards:** tambah dukungan dua secret runtime secara eksplisit; jangan melonggarkan guard binding, endpoint, target, source cleanliness, receipt, domain, account, D1/KV/Assets, dan race deployment. Detail bootstrap di bawah. Audit juga tooling produksi/manual yang memvalidasi binding; jangan membuka jalur bypass atau mengubahnya tanpa scope review.
+7. **Test lokal:** dua request NOPOL sama => dua panggilan upstream dan nol get/put/cache; tetap satu snapshot history dalam raid. Uji source global lintas pengguna/isolate dan pergantian saat request berjalan, CAS, auth/CSRF, audit atomik, minimization/error/429/deadline, nullable, snapshot absence, migration fresh/upgrade, development simulator zero-outbound, client parser/UI dan CI guards. Gunakan D1/workerd lokal dan fetch sintetis, bukan payload/credential produksi.
+8. **Gates/review:** test terarah, `npm run typecheck`, `npm run lint`, `npm test`, production-mode build lokal dan audit dependency. Pertahankan security assertions; kegagalan jelas diperbaiki terfokus, ambigu STOP dan laporkan. Review independen sebelum menawarkan commit/rilis. Hasil gate baru dicatat aktual; angka 1538 terdahulu bukan jaminan.
+
+### Secret dan Guard CI — Rencana Operasional, Bukan Perintah Eksekusi Sekarang
+
+1. Buat service token khusus Razia melalui Cloudflare Access, policy **Service Auth** pada aplikasi hostname Potensi, lalu grant konsumen unik dengan scope minimal. Simpan Client ID/Secret pada secret manager; jangan gunakan token kalkulator/PINTU/canary atau mengubah AUD/hostname konsumen lain.
+2. Pisahkan credential Access untuk request runtime, `CLOUDFLARE_API_TOKEN` untuk CI deployment Razia, serta konfigurasi grant server Potensi (grant bukan credential). Build variables saja tidak menambahkan runtime binding Worker; jangan pakai `VITE_*` atau plain-text `vars` untuk credential Access.
+3. Guard `scripts/ci-production.ts` saat ini memverifikasi tepat enam binding: `DB`, `VEHICLE_CACHE`, `ASSETS`, dan tiga runtime vars existing. Dua tambahan yang diusulkan harus bertipe `secret_text` dengan nama exact di atas. Periksa nama unik, tipe, ID resource dan nilai runtime vars existing; jangan sekadar ubah hitungan menjadi delapan.
+4. Bootstrap perlu desain fase-spesifik: active baseline dapat tepat enam atau tepat delapan binding lengkap selama transisi yang direview; uploaded candidate wajib tepat delapan sebelum aktivasi. Tolak tujuh, alias/nama asing, duplikat, secret parsial, tipe salah, resource drift, serta perubahan deployment bersamaan. Setelah rilis sukses, rencanakan pengetatan active wajib delapan. Jangan aktifkan mode transisi melalui environment bebas.
+5. Kaitkan verifikasi binding aktif pada ID versi aktif dari deployments. `/settings` tidak boleh diasumsikan mewakili versi aktif ketika ada staged version tanpa bukti. Pisahkan baseline aktif, metadata settings, dan snapshot versi upload.
+6. Wrangler terpasang pada verifikasi terdahulu `4.148.0`. Verifikasi ulang help/docs saat eksekusi. `wrangler secret put/delete` biasa dapat men-deploy langsung, sehingga **bukan** prosedur staging tanpa aktivasi. Kandidat prosedur `wrangler versions secret put` harus ditinjau/diotorisasi terpisah dan dijalankan operator terminal aman; jangan melalui wrapper CI yang menutup stdin.
+7. Pewarisan secret staged ke upload CI berikutnya **belum diverifikasi pada akun ini**. Jangan menjanjikan bahwa dua `versions secret put` otomatis cukup untuk upload berikutnya. Buktikan dengan metadata/read-only yang sesuai dan validasi nama secret pada snapshot upload sebelum aktivasi; jika tidak cocok, hentikan tanpa recovery/deployment manual.
+8. Provisioning token/policy/grant/secret, migration D1 remote, commit/push, dan deployment memerlukan persetujuan terpisah. Push ke main dapat otomatis men-deploy; jangan menganggap izin implementasi lokal mencakup mutasi tersebut.
+
+### Acceptance dan batas handoff
+
+- Handoff ini mengizinkan agen berikutnya memahami dan merencanakan pekerjaan; bukan bukti kode provider baru sudah ada. Agent hanya mengeksekusi scope yang user secara eksplisit minta pada sesi berikutnya.
+- Kebijakan global tanpa cache adalah keputusan FINAL user. Request lookup baru harus upstream, tetapi hasil Potensi tetap mencerminkan snapshot terakhir, bukan live BPAD.
+- Pada 2026-10-20 migrasi `0005`, adapter Potensi, setting global, UI pemilihan sumber, dan guard enam/delapan binding sudah diimplementasikan **lokal**. Secret, grant, migrasi remote, dan deployment belum dibuat/dijalankan; status live tetap **NOT VERIFIED**.
+- Jangan menjalankan real NOPOL canary, login/refresh Cloudflare, create/rotate secrets, migrasi/bootstrap/reset, deploy/upload/activate, retry build, DNS/domain/binding change, commit/push tanpa otorisasi khusus.
+- Sisa blocker eksternal: grant/service token Razia, scope/permission live, format snapshot yang tervalidasi, rate-limit budget, urutan migrasi/secrets/release, dan verifikasi konektivitas. Jangan meminta nilai secret melalui chat.
+
+## Riwayat Status sampai 2026-10-13
+
+REDESIGN UI/UX + FITUR LAPANGAN SELESAI & MERGE KE MAIN (2026-10-13). Lihat "Redesign UI/UX oleh Muse (2026-10-12 – 2026-10-13)" di bawah. Test 1470/1470 hijau, migrasi D1 0004 teraplikasi (lokal & remote) menurut catatan saat itu. Hasil historis ini tidak menggantikan baseline/recheck dan keputusan terbaru di atas.
 
 ## Redesign UI/UX oleh Muse (2026-10-12 – 2026-10-13)
 
@@ -749,9 +898,13 @@ Semua field immutable setelah INSERT. Record mengikuti retensi organisasi yang b
 
 ## Next Step
 
-STOP sesudah P9-E.1 tooling/commit/push. Satu langkah berikutnya: otorisasi operator menjalankan P9-E via terminalinteraktif dengan passwordbaru khususproduksi setelahpreflightulang; janganinputcredentialviachat ataujalankanapplydarisessionagent. ProductionmigrationsP9-D.4sudahPASS, bootstrapaccounts/locationmasihpending. Tidakdeploy/domain/smoke/BPADcanary otomatis. Risk10/retentionUNSET/mobile/go-live belumditutup; userchanges tetapdipertahankan.
+Baca bagian Current Phase, Keputusan Terbaru, Kontrak Potensi NTT, dan Rencana Implementasi untuk Claude di awal dokumen. Lakukan preflight Git/source, kemudian architecture gate untuk setting provider global dan penghapusan cache. Jangan menjalankan implementasi atau mutasi remote sebelum scope sesi berikutnya jelas. Implementasi lokal, provisioning Access/secrets, migration produksi, commit, push, dan deployment adalah tahap terpisah; tidak ada izin mutasi dari pembaruan status ini.
 
-UNRESOLVED: transport local test runtime; CPU aktual Free dengan baseline password100000/TTL43200; idle timeout; minimum/complexity password policy; risiko brute-force (rate-limit sengaja tidak diminta); raid deactivation/auto-close; reset interim OFFICER; retensi user_sessions; IDs/domain produksi. Plan Free dan baseline sudah DIPUTUSKAN, bukan open selection.
+Kebijakan final terbaru: tanpa cache untuk BPAD dan Potensi; scan baru untuk NOPOL sama wajib request upstream lagi; D5-01/D5-02 tidak berubah. Gunakan test sintetis/local D1/workerd tanpa live BPAD/Potensi. Resource/grant/secret live dan secret inheritance staged tetap NOT VERIFIED.
+
+### Next Step historis P9-E.1 (tidak aktif)
+
+Catatan lama meminta STOP setelah tooling bootstrap dan otorisasi operator terpisah. Risiko transport, CPU/plan, password policy, retensi, dan perangkat pada fase tersebut tetap bukti historis; jangan menggunakan angka PBKDF2 100000 atau status resource pending lama untuk menimpa baseline produksi 10 dan informasi terbaru. Tidak ada klaim semua risiko historis sudah terselesaikan.
 
 ## Agent Handoff Notes
 

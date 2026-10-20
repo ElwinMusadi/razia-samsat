@@ -2,7 +2,7 @@ import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactNo
 import { Link, useParams } from 'react-router';
 import { Button } from './components/ui/button';
 import { useAuth } from './auth';
-import { api, ApiError, formatWita, isAbort, type HistoryCheck, type HistoryRaid, type HistorySummary, type VehicleStatus as Status } from './lib/api';
+import { api, ApiError, formatWita, isAbort, providerLabel, type HistoryCheck, type HistoryRaid, type HistorySummary, type VehicleStatus as Status } from './lib/api';
 import { LookupOutcomeBadge, VehicleStatus } from './components/vehicle';
 import { EmptyState, PageHeader, Spinner } from './components/ui/layout';
 
@@ -88,6 +88,8 @@ function Instant({ seconds }: { seconds: number }) {
   return <time dateTime={isoSeconds(seconds)}>{formatWita(seconds)}</time>;
 }
 const SNAPSHOT_NOTE = 'Status adalah snapshot saat pengecekan, bukan status terkini.';
+/** Provenance as recorded: legacy rows without a provider keep their original Langsung/Cache label. */
+const sourceLabel = (check: HistoryCheck) => check.provider !== null ? providerLabel(check.provider) : check.source === 'LIVE' ? 'Langsung' : 'Cache';
 const EVENTUAL_NOTE = 'Riwayat diperbarui di latar belakang dan dapat tertunda sesaat.';
 
 /** Remounts history views when the signed-in identity changes so data never crosses users/roles. */
@@ -187,7 +189,7 @@ function CheckItem({ check }: { check: HistoryCheck }) {
     <dl className="grid grid-cols-1 gap-2 text-sm sm:grid-cols-2">
       <div><dt>Status Pajak</dt><dd><StatusBadge status={check.tax_status} /></dd></div>
       <div><dt>Status STNK</dt><dd><StatusBadge status={check.stnk_status} /></dd></div>
-      <div><dt>Sumber</dt><dd className="font-semibold">{check.source === 'LIVE' ? 'Langsung' : 'Cache'}</dd></div>
+      <div><dt>Sumber</dt><dd className="font-semibold">{sourceLabel(check)}</dd></div>
       <div><dt>Waktu</dt><dd><Instant seconds={check.checked_at} /></dd></div>
     </dl>
   </li>;

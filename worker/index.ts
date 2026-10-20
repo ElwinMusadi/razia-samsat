@@ -6,6 +6,7 @@ import { registerHistoryRoutes } from './history';
 import { createSafeLogger, type SafeLogger } from './logger';
 import { registerRaidRoutes } from './raids';
 import { registerLookupRoutes, type LookupDependencies } from './lookups';
+import { registerVehicleSourceRoutes } from './vehicle-source';
 import { apiBodyLimit, csrfProtection } from './security';
 import type { AppEnv } from './types';
 
@@ -35,6 +36,7 @@ export function createApp(logger: SafeLogger = createSafeLogger(), lookupDepende
   app.get('/api/health', c => c.json({ status: 'ok', phase: 1 }));
   registerAuthRoutes(app, logger);
   registerAdminRoutes(app);
+  registerVehicleSourceRoutes(app, logger);
   registerRaidRoutes(app);
   registerHistoryRoutes(app);
   registerLookupRoutes(app, logger, lookupDependencies);

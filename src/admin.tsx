@@ -3,7 +3,8 @@ import { Link, useParams } from 'react-router';
 import { useAuth } from './auth';
 import { Button } from './components/ui/button';
 import { useLatestRequest } from './history';
-import { api, ApiError, formatWita, isAcceptablePassword, isAbort, normalizeUsername, type AdminUser, type AdminSession, type AdminLocation } from './lib/api';
+import { api, ApiError, formatWita, isAcceptablePassword, isAbort, normalizeUsername, providerLabel, VEHICLE_PROVIDERS, type AdminUser, type AdminSession, type AdminLocation, type VehicleProvider, type VehicleSourceState } from './lib/api';
+import { Settings2 } from 'lucide-react';
 import { PasswordInput } from './components/ui/input';
 import { StatusChip } from './components/ui/status-chip';
 import { PageHeader } from './components/ui/layout';
@@ -161,6 +162,11 @@ function AdminUsers() {
   return <section className="reading-layout flex min-w-0 flex-col gap-4" aria-busy={busy || phase !== 'ready'}>
     <Title>Kelola pengguna</Title>
     <p>Kelola akses akun dan sesi perangkat. Peran ditentukan saat akun dibuat.</p>
+    {/* Settings entry lives here so the bottom navigation keeps its current five destinations. */}
+    <Link to="/admin/settings" className="panel flex min-h-11 min-w-0 items-center gap-3 hover:bg-accent" aria-label="Pengaturan sumber data">
+      <Settings2 aria-hidden="true" size={20} className="shrink-0" />
+      <span className="flex min-w-0 flex-col"><span className="font-semibold">Pengaturan sumber data</span><span className="text-sm">Pilih BPAD atau Potensi NTT untuk semua pengguna.</span></span>
+    </Link>
     {phase === 'loading' && <p role="status">Memuat pengguna…</p>}
     {failure && <Failure error={failure} retry={() => reload()} busy={busy} />}
     {!terminal(failure) && <>
@@ -431,6 +437,117 @@ function AdminLocations() {
           </div>}
         </li>)}
       </ul>}
+    </>}
+  </section>;
+}
+
+export function AdminSettingsRoute() {
+  const identity = useIdentity();
+  return <AdminGate subject="pengaturan"><AdminSettings key={identity} /></AdminGate>;
+}
+const providerHelp: Record<VehicleProvider, string> = {
+  BPAD: 'Data langsung dari layanan BPAD pada saat pencarian.',
+  POTENSI_NTT: 'Salinan (snapshot) data BPAD yang ditarik berkala. Hasil menampilkan waktu penarikan snapshot, bukan data BPAD saat ini.',
+};
+/**
+ * Global vehicle data source. The selection is stored server-side and applies to every user on their
+ * next lookup; in-flight lookups finish with the provider they started with. Saving uses compare-and-set,
+ * so a concurrent change by another admin is reported (409) and must be reloaded, never replayed.
+ */
+function AdminSettings() {
+  const { busy } = useAuth();
+  const { start, cancel } = useLatestRequest();
+  const { pending, perform } = useAdminOperation();
+  const mounted = useRef(true);
+  const [state, setState] = useState<VehicleSourceState | null>(null);
+  const [selection, setSelection] = useState<VehicleProvider | null>(null);
+  const [phase, setPhase] = useState<'loading' | 'ready'>('loading');
+  const [failure, setFailure] = useState<ApiError | null>(null);
+  const [operationError, setOperationError] = useState<ApiError | null>(null);
+  const [needsSync, setNeedsSync] = useState<'ambiguous' | 'conflict' | null>(null);
+  const [confirming, setConfirming] = useState(false);
+  const [message, setMessage] = useState('');
+  const fetchHead = useCallback((reconcile = false) => {
+    start(signal => api.vehicleSource(signal), next => {
+      setState(next); setSelection(next.setting.provider); setPhase('ready'); setFailure(null); setConfirming(false);
+      if (reconcile) { setNeedsSync(null); setOperationError(null); setMessage('Pengaturan dimuat ulang dari layanan. Periksa sumber aktif sebelum mengubah lagi.'); }
+    }, error => { setState(null); setFailure(asError(error)); setPhase('ready'); });
+  }, [start]);
+  useEffect(() => { fetchHead(); return cancel; }, [fetchHead, cancel]);
+  useLayoutEffect(() => { mounted.current = true; return () => { mounted.current = false; }; }, []);
+  useLayoutEffect(() => { if (busy) cancel(); }, [busy, cancel]);
+  function reload(reconcile = false) { if (busy) return; setPhase('loading'); setFailure(null); fetchHead(reconcile); }
+  const disabled = busy || needsSync !== null || phase !== 'ready' || !state;
+  const changed = !!state && selection !== null && selection !== state.setting.provider;
+  const potensiBlocked = !!state && !state.potensi_credentials_configured;
+  async function save() {
+    if (!state || !selection || !changed || disabled || pending.current) return;
+    if (selection === 'POTENSI_NTT' && potensiBlocked) return;
+    const expected = state.setting.version;
+    setOperationError(null); setMessage('');
+    try {
+      await perform(signal => api.updateVehicleSource(selection, expected, signal), next => {
+        setState(next); setSelection(next.setting.provider); setConfirming(false);
+        setMessage(`Sumber data ${providerLabel(next.setting.provider)} berlaku untuk semua pengguna pada pencarian berikutnya.`);
+      });
+    } catch (error) {
+      if (!mounted.current || isAbort(error)) return;
+      const rejected = asError(error); setOperationError(rejected); setConfirming(false);
+      if (rejected.code === 'VEHICLE_SOURCE_CONFLICT') setNeedsSync('conflict');
+      else if (ambiguous(rejected)) setNeedsSync('ambiguous');
+      if (terminal(rejected)) { setState(null); setFailure(rejected); }
+    }
+  }
+  if (busy && !pending.current) return <p role="status">Memproses sesi…</p>;
+  return <section className="reading-layout flex min-w-0 flex-col gap-4" aria-busy={busy || phase !== 'ready'}>
+    <Link to="/admin/users" className="inline-flex min-h-11 min-w-11 items-center self-start underline">Kembali ke Admin</Link>
+    <Title>Pengaturan sumber data</Title>
+    <p>Pilihan berlaku global untuk semua pengguna dan disimpan di server. Perubahan berlaku pada pencarian berikutnya; pencarian yang sedang berjalan menyelesaikan sumber yang sedang dipakai.</p>
+    {phase === 'loading' && <p role="status">Memuat pengaturan…</p>}
+    {failure && <Failure error={failure} retry={() => reload()} busy={busy} />}
+    {state && !terminal(failure) && <>
+      <dl className="panel grid min-w-0 grid-cols-1 gap-2 sm:grid-cols-2" aria-label="Pengaturan aktif">
+        <div><dt>Sumber aktif</dt><dd className="font-semibold" data-active-provider={state.setting.provider}>{providerLabel(state.setting.provider)}</dd></div>
+        <div><dt>Versi pengaturan</dt><dd className="font-semibold">{state.setting.version}</dd></div>
+        <div><dt>Diubah</dt><dd>{formatWita(state.setting.updated_at)}</dd></div>
+        <div><dt>Oleh</dt><dd className="break-all">{state.setting.updated_by ? state.setting.updated_by.username : 'Pengaturan awal'}</dd></div>
+      </dl>
+      {message && <p role="status">{message}</p>}
+      {operationError && <Failure error={operationError} />}
+      {needsSync && <>
+        <p>{needsSync === 'conflict' ? 'Pengaturan diubah admin lain sejak halaman ini dimuat. Muat ulang untuk melihat sumber aktif, lalu putuskan apakah perubahan masih diperlukan.' : 'Hasil penyimpanan belum pasti. Muat ulang pengaturan dari layanan sebelum mencoba lagi; jangan mengirim ulang begitu saja.'}</p>
+        <Button variant="outline" className={CONTROL} disabled={busy || phase === 'loading'} onClick={() => reload(true)}>Muat ulang pengaturan</Button>
+      </>}
+      <form className="panel flex min-w-0 flex-col gap-4" onSubmit={event => { event.preventDefault(); if (changed && !disabled) setConfirming(true); }} noValidate>
+        <fieldset className="flex min-w-0 flex-col gap-3" disabled={disabled}>
+          <legend className="text-xl font-semibold">Sumber data NOPOL</legend>
+          {VEHICLE_PROVIDERS.map(provider => {
+            const blocked = provider === 'POTENSI_NTT' && potensiBlocked;
+            return <label key={provider} className={`flex min-h-11 min-w-0 items-start gap-3 rounded-md border border-input p-3 ${blocked ? 'opacity-70' : ''}`}>
+              <input type="radio" name="provider" value={provider} className="mt-1 size-5 shrink-0" checked={selection === provider} disabled={disabled || blocked} aria-labelledby={`provider-${provider}-label`} aria-describedby={`provider-${provider}-help`}
+                onChange={() => { setSelection(provider); setConfirming(false); setOperationError(null); setMessage(''); }} />
+              <span className="flex min-w-0 flex-col gap-1">
+                <span id={`provider-${provider}-label`} className="font-semibold">{providerLabel(provider)}{state.setting.provider === provider ? ' · aktif' : ''}</span>
+                <span id={`provider-${provider}-help`} className="text-sm">{providerHelp[provider]}{blocked ? ' Belum dapat dipilih: kredensial layanan Potensi NTT belum tersedia di server. Ketersediaan kredensial bukan jaminan izin akses sudah benar.' : ''}</span>
+              </span>
+            </label>;
+          })}
+        </fieldset>
+        <div className="flex flex-wrap gap-2">
+          <Button type="submit" className={CONTROL} disabled={disabled || !changed || confirming}>Simpan</Button>
+          {/* Any reload after a conflict or an uncertain save is a reconciliation; it clears the lock only on fresh server data. */}
+          <Button type="button" variant="outline" className={CONTROL} disabled={busy || phase === 'loading'} onClick={() => reload(needsSync !== null)}>Muat ulang</Button>
+        </div>
+      </form>
+      {confirming && selection && changed && <section aria-labelledby="source-confirm-title" className="panel confirmation flex min-w-0 flex-col gap-3">
+        <h2 id="source-confirm-title" className="text-xl font-semibold">Konfirmasi perubahan sumber</h2>
+        <p>Terapkan <span className="font-semibold">{providerLabel(selection)}</span> sebagai sumber data untuk semua pengguna? Perubahan berlaku pada pencarian berikutnya.</p>
+        {selection === 'POTENSI_NTT' && <p className="text-sm">Potensi NTT adalah snapshot BPAD, bukan data BPAD saat ini. Hasil akan menampilkan waktu penarikan snapshot.</p>}
+        <div className="flex flex-wrap gap-2">
+          <Button type="button" variant="destructive" className={CONTROL} disabled={disabled} onClick={() => { void save(); }}>{busy ? 'Menyimpan…' : 'Ya, terapkan'}</Button>
+          <Button type="button" variant="outline" className={CONTROL} disabled={busy} onClick={() => setConfirming(false)}>Batal</Button>
+        </div>
+      </section>}
     </>}
   </section>;
 }

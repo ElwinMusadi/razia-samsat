@@ -3,7 +3,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { applyTestMigrations, loadMigrationFiles, resetTestD1, startMigratedD1, type TestD1 } from './helpers/miniflare';
 
 let mf: Miniflare, db: TestD1;
-const fields = ['id','raid_session_id','user_id','idempotency_key','nopol','outcome','tax_status','stnk_status','source','checked_at','vehicle_brand','vehicle_type','vehicle_color'];
+const fields = ['id','raid_session_id','user_id','idempotency_key','nopol','outcome','tax_status','stnk_status','source','checked_at','vehicle_brand','vehicle_type','vehicle_color','provider'];
 async function seed(database: TestD1) {
   await database.batch([
     database.prepare("INSERT INTO users(id,username,password_hash,role) VALUES('user','synthetic.user','unused','OFFICER'),('other','synthetic.other','unused','OFFICER')"),
@@ -22,13 +22,13 @@ afterAll(async () => { await mf?.dispose(); });
 describe('authoritative ordered atomic migration files on actual D1/workerd', () => {
   it('loads all SQL files lexicographically and keeps full triggers intact', async () => {
     const files = await loadMigrationFiles();
-    expect(files.map(f=>f.filename)).toEqual(['0001_foundation.sql','0002_history.sql','0003_admin.sql','0004_check_vehicle.sql']);
+    expect(files.map(f=>f.filename)).toEqual(['0001_foundation.sql','0002_history.sql','0003_admin.sql','0004_check_vehicle.sql','0005_vehicle_source.sql']);
     expect((await loadMigrationFiles('0001_foundation.sql')).map(f=>f.filename)).toEqual(['0001_foundation.sql']);
     expect(files[1].statements[0]).toBe('CREATE UNIQUE INDEX check_logs_raid_nopol ON check_logs(raid_session_id, nopol);');
     expect(files[1].statements.find(s=>s.startsWith('CREATE TRIGGER'))).toBe("CREATE TRIGGER check_logs_immutable BEFORE UPDATE ON check_logs BEGIN SELECT RAISE(ABORT, 'Check log is immutable'); END;");
     await expect(loadMigrationFiles('missing.sql')).rejects.toThrow('Unknown migration filename');
   });
-  it('fresh schema retains thirteen fields, technical unique, FKs and correct paging indexes', async () => {
+  it('fresh schema retains fourteen fields, technical unique, FKs and correct paging indexes', async () => {
     expect((await db.prepare('PRAGMA table_info(check_logs)').all<{name:string}>()).results.map((r:{name:string})=>r.name)).toEqual(fields);
     expect(await db.prepare('PRAGMA foreign_keys').first('foreign_keys')).toBe(1);
     expect((await db.prepare('PRAGMA foreign_key_check').all()).results).toEqual([]);
@@ -92,7 +92,8 @@ describe('authoritative ordered atomic migration files on actual D1/workerd', ()
         expect((await baseline.db.prepare('PRAGMA foreign_key_check').all()).results).toEqual([]);
       }
       const current = (await baseline.db.prepare('SELECT * FROM check_logs ORDER BY id').all()).results as Record<string,unknown>[];
-      expect(current.map(({vehicle_brand,vehicle_type,vehicle_color,...rest})=>rest)).toEqual(original);
+      // 0004/0005 add nullable columns; legacy rows keep NULL and are never reattributed to a provider.
+      expect(current.map(({vehicle_brand,vehicle_type,vehicle_color,provider,...rest})=>{ expect(provider ?? null).toBeNull(); return rest; })).toEqual(original);
       // 0004 adds nullable vehicle snapshot columns; pre-migration rows keep NULL.
       // (In the duplicates case the upgrade fails by design, so the columns do not exist.)
       if (kind === 'compatible') expect(current.every(row=>row.vehicle_brand===null&&row.vehicle_type===null&&row.vehicle_color===null)).toBe(true);
