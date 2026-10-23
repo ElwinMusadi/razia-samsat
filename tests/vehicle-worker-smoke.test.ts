@@ -35,7 +35,7 @@ beforeAll(async () => {
   if (result.status !== 0) throw new Error(`wrangler dry-run failed: ${result.stderr}`);
   // Intercept ALL outbound fetches: this test cannot contact live BPAD or Potensi, even on a wrong URL.
   ({ mf, db } = await startMigratedD1({ modules: true, modulesRoot: outdir, scriptPath: join(outdir, 'index.js'), kvNamespaces: ['VEHICLE_CACHE'],
-    bindings: { PASSWORD_PBKDF2_ITERATIONS: '100000', SESSION_TTL_SECONDS: '43200', RETENTION_POLICY: 'UNSET', POTENSI_ACCESS_CLIENT_ID: 'synthetic-client-id.access', POTENSI_ACCESS_CLIENT_SECRET: 'synthetic-client-secret-value' },
+    bindings: { PASSWORD_PBKDF2_ITERATIONS: '100000', SESSION_TTL_SECONDS: '43200', RETENTION_POLICY: 'UNSET', POTENSI_ACCESS_CLIENT_ID: 'synthetic-client-id.access', POTENSI_ACCESS_CLIENT_SECRET: 'synthetic-client-secret-value', POTENSI_API_KEY: 'ptn_Ab12Cd34_AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA' },
     outboundService: async request => {
       outboundRequests.push({ url: request.url, method: request.method, body: await request.text(), headers: Object.fromEntries(request.headers) });
       if (providerStatus !== 200) return new RuntimeResponse('FORBIDDEN_SENTINEL', { status: providerStatus });
@@ -58,6 +58,7 @@ it('production bundle: BPAD default, every lookup upstream, zero KV, one history
   const live = await post({ nopol: 'dh 1234 zz' }); expect({ status: live.status, calls: outboundRequests.length }).toEqual({ status: 200, calls: 1 });
   expect(outboundRequests[0]).toMatchObject({ url: 'https://dash.bpad.nttprov.go.id/pajak/webdtd/pendataan/core/php/getnopol.php', method: 'POST', body: '{"nopol":"DH1234ZZ"}' });
   expect(outboundRequests[0].headers['cf-access-client-id']).toBeUndefined();
+  expect(outboundRequests[0].headers.authorization).toBeUndefined();
   const body = await live.json() as { source: string; provider: string; fetched_at: string; snapshot_synced_at: unknown; evaluated_on: string; request_id: string; vehicle: Record<string, unknown> };
   expect(body).toMatchObject({ source: 'LIVE', provider: 'BPAD', snapshot_synced_at: null }); expect(body.request_id).toBe(live.headers.get('x-request-id'));
   expect(live.headers.get('cache-control')).toBe('no-store');
@@ -91,6 +92,7 @@ it('production bundle: BPAD default, every lookup upstream, zero KV, one history
   expect(request).toMatchObject({ url: 'https://api.uptdpenda-kupang.web.id/api/v1/vehicle/DH1234ZZ', method: 'GET', body: '' });
   expect(request.headers['cf-access-client-id']).toBe('synthetic-client-id.access');
   expect(request.headers['cf-access-client-secret']).toBe('synthetic-client-secret-value');
+  expect(request.headers.authorization).toBe('Bearer ptn_Ab12Cd34_AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA');
   const snapshotBody = await potensi.json() as Record<string, unknown>;
   expect(snapshotBody).toMatchObject({ outcome: 'FOUND', source: 'LIVE', provider: 'POTENSI_NTT', snapshot_synced_at: '2026-10-18T00:00:00.000Z', vehicle: { owner_name: 'Owner Snapshot', brand: 'Brand Snapshot', type: null, color: 'Color Snapshot', tax_due_date: '2024-01-06', stnk_due_date: '2026-01-06', tax_status: 'EXPIRED', stnk_status: 'EXPIRED' } });
   expect(JSON.stringify(snapshotBody)).not.toMatch(/FORBIDDEN_SENTINEL|synthetic-client/);

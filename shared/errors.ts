@@ -18,6 +18,7 @@ export const errorCatalog = {
   PAYLOAD_TOO_LARGE: { status: 413, message: 'Ukuran permintaan terlalu besar.' },
   LOCATION_UNAVAILABLE: { status: 422, message: 'Lokasi tidak tersedia.' },
   VEHICLE_SOURCE_CREDENTIALS_MISSING: { status: 422, message: 'Sumber Potensi NTT belum dapat dipilih karena kredensial layanan belum tersedia.' },
+  VEHICLE_REGION_NOT_ALLOWED: { status: 422, message: 'Kendaraan terdaftar di luar wilayah yang diizinkan untuk sumber data Potensi NTT.' },
   INTERNAL_ERROR: { status: 500, message: 'Terjadi kesalahan layanan.' },
   UPSTREAM_ERROR: { status: 502, message: 'Layanan data tidak tersedia.' },
   UPSTREAM_MALFORMED: { status: 502, message: 'Respons layanan data tidak valid.' },

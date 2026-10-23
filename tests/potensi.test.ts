@@ -4,7 +4,7 @@ import type { Fetcher } from '../worker/vehicle/contracts';
 import { isPotensiAbsence, mapPotensiPayload, POTENSI_ENDPOINT, POTENSI_MAX_BYTES, POTENSI_TIMEOUT_MS, PotensiSnapshotSource, readPotensiCredentials } from '../worker/vehicle/potensi';
 
 const now = () => new Date('2026-10-20T01:00:00.000Z');
-const credentials = { clientId: 'synthetic-id.access', clientSecret: 'synthetic-secret-value' };
+const credentials = { clientId: 'synthetic-id.access', clientSecret: 'synthetic-secret-value', apiKey: 'ptn_Ab12Cd34_AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA' };
 // Synthetic upstream envelope mirroring api-potensi-ntt shape.ts with the granted scopes only.
 const fixture = () => ({
   status: 'vehicle_found', vehicle_status: 'found', njkb_status: 'not_found', nopol: 'DH0001XX',
@@ -23,20 +23,30 @@ afterEach(() => vi.useRealTimers());
 
 describe('Potensi credentials presence', () => {
   it('requires both secrets as printable ASCII without whitespace; presence is not proof of grant', () => {
-    expect(readPotensiCredentials({ POTENSI_ACCESS_CLIENT_ID: 'a.access', POTENSI_ACCESS_CLIENT_SECRET: 'b' })).toEqual({ clientId: 'a.access', clientSecret: 'b' });
+    expect(readPotensiCredentials({ POTENSI_ACCESS_CLIENT_ID: 'a.access', POTENSI_ACCESS_CLIENT_SECRET: 'b', POTENSI_API_KEY: credentials.apiKey })).toEqual({ clientId: 'a.access', clientSecret: 'b', apiKey: credentials.apiKey });
     for (const env of [undefined, {}, { POTENSI_ACCESS_CLIENT_ID: 'a' }, { POTENSI_ACCESS_CLIENT_SECRET: 'b' }, { POTENSI_ACCESS_CLIENT_ID: '', POTENSI_ACCESS_CLIENT_SECRET: 'b' }, { POTENSI_ACCESS_CLIENT_ID: 'a b', POTENSI_ACCESS_CLIENT_SECRET: 'b' }, { POTENSI_ACCESS_CLIENT_ID: 'a\n', POTENSI_ACCESS_CLIENT_SECRET: 'b' }, { POTENSI_ACCESS_CLIENT_ID: 1, POTENSI_ACCESS_CLIENT_SECRET: 'b' }, { POTENSI_ACCESS_CLIENT_ID: 'x'.repeat(513), POTENSI_ACCESS_CLIENT_SECRET: 'b' }]) {
       expect(readPotensiCredentials(env as never)).toBeNull();
     }
   });
 });
 
+describe('Potensi API key presence', () => {
+  it('requires the ptn_ key format next to both Access secrets', () => {
+    const access = { POTENSI_ACCESS_CLIENT_ID: 'a.access', POTENSI_ACCESS_CLIENT_SECRET: 'b' };
+    for (const apiKey of [undefined, '', 'ptn_short', `${credentials.apiKey} `, credentials.apiKey.replace('ptn_', 'pt_'), `ptn_Ab12Cd3_${'A'.repeat(43)}`, `ptn_Ab12Cd34_${'A'.repeat(42)}`, `ptn_Ab12Cd3!_${'A'.repeat(43)}`]) {
+      expect(readPotensiCredentials({ ...access, POTENSI_API_KEY: apiKey } as never)).toBeNull();
+    }
+    expect(readPotensiCredentials({ POTENSI_API_KEY: credentials.apiKey } as never)).toBeNull();
+  });
+});
+
 describe('Potensi normalized contract', () => {
-  it('GETs the fixed endpoint with Access headers only, manual redirect, no retry and allowlist projection', async () => {
+  it('GETs the fixed endpoint with the API key and Access headers, manual redirect, no retry and allowlist projection', async () => {
     const fetcher = vi.fn<Fetcher>(async () => json(fixture()));
     const result = await source(fetcher).lookup(' dh 0001 xx ');
     expect(fetcher).toHaveBeenCalledTimes(1);
     expect(fetcher.mock.calls[0][0]).toBe(`${POTENSI_ENDPOINT}/DH0001XX`);
-    expect(fetcher.mock.calls[0][1]).toMatchObject({ method: 'GET', redirect: 'manual', headers: { 'CF-Access-Client-Id': credentials.clientId, 'CF-Access-Client-Secret': credentials.clientSecret, accept: 'application/json' } });
+    expect(fetcher.mock.calls[0][1]).toMatchObject({ method: 'GET', redirect: 'manual', headers: { authorization: `Bearer ${credentials.apiKey}`, 'CF-Access-Client-Id': credentials.clientId, 'CF-Access-Client-Secret': credentials.clientSecret, accept: 'application/json' } });
     expect((fetcher.mock.calls[0][1] as RequestInit).body).toBeUndefined();
     expect(result).toEqual({ outcome: 'FOUND', vehicle: { nopol: 'DH0001XX', owner_name: 'PEMILIK CONTOH', brand: 'HONDA', type: 'X1B02N04L0 A/T', color: 'PUTIH-BIRU', tax_due_date: '2024-01-06', stnk_due_date: '2026-01-06', provider_fetched_at: now().toISOString(), snapshot_synced_at: '2026-10-18T00:00:00.000Z', source: 'LIVE' } });
     expect(JSON.stringify(result)).not.toContain('FORBIDDEN_SENTINEL');
@@ -118,6 +128,18 @@ describe('Potensi absence versus errors', () => {
   });
   it('isPotensiAbsence requires the full envelope', () => {
     for (const value of [null, {}, { status: 'vehicle_not_found' }, { status: 'vehicle_not_found', vehicle_status: 'not_found' }, { ...absence(), vehicle_status: 'found' }, { ...absence(), error: [] }, { ...absence(), error: null }]) expect(isPotensiAbsence(value)).toBe(false);
+  });
+  it('HTTP 403 region_not_allowed is its own outcome, without leaking upstream text', async () => {
+    const fetcher = vi.fn<Fetcher>(async () => json({ status: 'forbidden', error: { code: 'region_not_allowed', message: 'FORBIDDEN_SENTINEL', request_id: 'r' } }, 403));
+    await expect(source(fetcher).lookup('DH0001XX')).rejects.toMatchObject({ code: 'VEHICLE_REGION_NOT_ALLOWED', message: expect.not.stringContaining('FORBIDDEN_SENTINEL') });
+    expect(fetcher).toHaveBeenCalledTimes(1);
+  });
+  it.each([
+    ['Access HTML', new Response('<html>FORBIDDEN_SENTINEL</html>', { status: 403, headers: { 'content-type': 'text/html' } })],
+    ['other forbidden code', json({ status: 'forbidden', error: { code: 'forbidden', message: 'x', request_id: 'r' } }, 403)],
+    ['region code without forbidden status', json({ status: 'error', error: { code: 'region_not_allowed', message: 'x', request_id: 'r' } }, 403)],
+  ])('HTTP 403 %s stays UPSTREAM_FORBIDDEN', async (_name, response) => {
+    await expect(source(async () => response).lookup('DH0001XX')).rejects.toMatchObject({ code: 'UPSTREAM_FORBIDDEN' });
   });
   it.each([401, 403])('HTTP %i is UPSTREAM_FORBIDDEN (Razia credential/grant), not a Razia session error', async status => {
     const fetcher = vi.fn<Fetcher>(async () => json({ status: 'unauthorized', error: { code: 'unauthorized', message: 'Kredensial tidak valid FORBIDDEN_SENTINEL', request_id: 'r' } }, status));

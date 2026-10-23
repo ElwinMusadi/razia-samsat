@@ -10,19 +10,24 @@ export const POTENSI_TIMEOUT_MS = 5000;
 export const POTENSI_MAX_BYTES = 64 * 1024;
 export const POTENSI_CLIENT_ID_BINDING = 'POTENSI_ACCESS_CLIENT_ID';
 export const POTENSI_CLIENT_SECRET_BINDING = 'POTENSI_ACCESS_CLIENT_SECRET';
+export const POTENSI_API_KEY_BINDING = 'POTENSI_API_KEY';
 
-export type PotensiCredentials = { clientId: string; clientSecret: string };
-export type PotensiEnv = Partial<Pick<Env, typeof POTENSI_CLIENT_ID_BINDING | typeof POTENSI_CLIENT_SECRET_BINDING>>;
+export type PotensiCredentials = { clientId: string; clientSecret: string; apiKey: string };
+export type PotensiEnv = Partial<Pick<Env, typeof POTENSI_CLIENT_ID_BINDING | typeof POTENSI_CLIENT_SECRET_BINDING | typeof POTENSI_API_KEY_BINDING>>;
 const CREDENTIAL = /^[\x21-\x7e]{1,512}$/;
+/** Exact Data Potensi key format: `ptn_<8 alphanumeric prefix>_<43 base64url secret>`. */
+const API_KEY = /^ptn_[A-Za-z0-9]{8}_[A-Za-z0-9_-]{43}$/;
 /**
- * Presence check only: both Worker secrets must be printable ASCII without whitespace. Presence
- * never proves that the Access policy, grant or scopes are correct upstream.
+ * Presence check only: both Access secrets must be printable ASCII without whitespace and the API key
+ * must match the `ptn_…` format. Presence never proves that the key, Access policy or scopes are valid upstream.
  */
 export function readPotensiCredentials(env: PotensiEnv | undefined): PotensiCredentials | null {
   const clientId: unknown = env?.[POTENSI_CLIENT_ID_BINDING];
   const clientSecret: unknown = env?.[POTENSI_CLIENT_SECRET_BINDING];
+  const apiKey: unknown = env?.[POTENSI_API_KEY_BINDING];
   if (typeof clientId !== 'string' || typeof clientSecret !== 'string' || !CREDENTIAL.test(clientId) || !CREDENTIAL.test(clientSecret)) return null;
-  return { clientId, clientSecret };
+  if (typeof apiKey !== 'string' || !API_KEY.test(apiKey)) return null;
+  return { clientId, clientSecret, apiKey };
 }
 
 const SYNCED_AT = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,3})?Z$/;
@@ -67,6 +72,15 @@ export function isPotensiAbsence(payload: unknown): boolean {
     && !!error && typeof error === 'object' && !Array.isArray(error) && (error as Record<string, unknown>).code === 'vehicle_not_found';
 }
 
+/** The plate exists upstream but lies outside the regions (UPT) allowed for Razia's API key. */
+export function isPotensiRegionNotAllowed(payload: unknown): boolean {
+  if (!payload || typeof payload !== 'object' || Array.isArray(payload)) return false;
+  const record = payload as Record<string, unknown>;
+  const error = record.error;
+  return record.status === 'forbidden' && !!error && typeof error === 'object' && !Array.isArray(error)
+    && (error as Record<string, unknown>).code === 'region_not_allowed';
+}
+
 /**
  * Projects a `vehicle_found` payload onto the normalized contract. Only the needed fields are read;
  * identity numbers, addresses, chassis/engine numbers and amounts never leave this function.
@@ -98,14 +112,16 @@ export function mapPotensiPayload(value: unknown, searchedNopol: string, fetched
 }
 
 /**
- * Potensi NTT snapshot lookup behind Cloudflare Access service auth. Upstream 401/403 is a
- * Razia credential/grant problem (UPSTREAM_FORBIDDEN), never an expired Razia login.
+ * Potensi NTT snapshot lookup: Data Potensi API key (`Authorization: Bearer`) plus the Cloudflare Access
+ * service token while Access still guards the host. Upstream 401/403 is a Razia credential/grant problem
+ * (UPSTREAM_FORBIDDEN), never an expired Razia login; the documented 403 `region_not_allowed` envelope is
+ * its own outcome (VEHICLE_REGION_NOT_ALLOWED).
  */
 export class PotensiSnapshotSource implements VehicleSource {
   constructor(private readonly credentials: PotensiCredentials, private readonly fetcher: Fetcher = fetch, private readonly clock: () => Date = () => new Date()) {}
   async lookup(input: unknown): Promise<VehicleResult> {
     const nopol = normalizeNopol(input);
-    const headers = { accept: 'application/json', 'CF-Access-Client-Id': this.credentials.clientId, 'CF-Access-Client-Secret': this.credentials.clientSecret };
+    const headers = { accept: 'application/json', authorization: `Bearer ${this.credentials.apiKey}`, 'CF-Access-Client-Id': this.credentials.clientId, 'CF-Access-Client-Secret': this.credentials.clientSecret };
     return upstreamRequest(this.fetcher, `${POTENSI_ENDPOINT}/${nopol}`, { method: 'GET', headers }, { timeoutMs: POTENSI_TIMEOUT_MS, maxBytes: POTENSI_MAX_BYTES }, async (response, body) => {
       if (response.status === 404) {
         let payload: unknown;
@@ -117,6 +133,16 @@ export class PotensiSnapshotSource implements VehicleSource {
         }
         if (isPotensiAbsence(payload)) return { outcome: 'NOT_FOUND' };
         throw new AppError('UPSTREAM_ERROR');
+      }
+      if (response.status === 403) {
+        let payload: unknown = null;
+        try { payload = await body.json(); }
+        catch (error) {
+          // Access HTML or an oversize body is a plain refusal; transport errors (timeout) propagate.
+          if (!(error instanceof AppError && error.code === 'UPSTREAM_MALFORMED')) throw error;
+        }
+        if (isPotensiRegionNotAllowed(payload)) throw new AppError('VEHICLE_REGION_NOT_ALLOWED');
+        throw new AppError('UPSTREAM_FORBIDDEN');
       }
       if (!response.ok) {
         body.discard();

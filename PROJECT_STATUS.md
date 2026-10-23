@@ -15,6 +15,25 @@ Aplikasi Razia Kendaraan SAMSAT Kota Kupang. Blueprint di `docs/AI Product Bluep
 - Pekerjaan dilakukan di branch `main` sesuai kesepakatan user, tetapi tidak ada izin otomatis untuk stage/commit/push. Push `main` dapat memicu Workers Builds dan deployment.
 - Pembaruan 2026-10-19 hanya dokumentasi. Pembaruan 2026-10-20 menambah perubahan runtime, schema (migrasi baru `0005`), test, UI, dan guard CI secara **lokal saja**. Tidak ada secret, migrasi remote, deployment, atau operasi Cloudflare.
 
+## Kunci API Data Potensi — Implementasi Lokal 2026-10-23 (BELUM COMMIT, BELUM DEPLOY)
+
+Konteks: `api-potensi-ntt` kini menerima kunci API `ptn_…` (`Authorization: Bearer`) yang dikelola di website potensi-tarik (https://potensi.uptdpenda-kupang.web.id/#kunci). Kalkulator pajak dan PINTU sudah pindah. Razia adalah konsumen terakhir yang masih hanya memakai service token Access; Fase 5 (melepas Access dari host Potensi dan jalur service token lama) menunggu Razia. Rencana: `D:\Herd\potensi-tarik\docs\RENCANA-KUNCI-API.md`.
+
+Perubahan:
+- **Secret runtime baru `POTENSI_API_KEY`** (`worker/env.d.ts`). `readPotensiCredentials` mewajibkan ketiga secret; kunci harus tepat format `ptn_<8 alfanumerik>_<43 base64url>`. Tanpa salah satunya: Potensi tidak bisa dipilih (`422 VEHICLE_SOURCE_CREDENTIALS_MISSING`) dan lookup `503 VEHICLE_SOURCE_UNAVAILABLE`, sama seperti sebelumnya.
+- **Adapter Potensi** (`worker/vehicle/potensi.ts`) mengirim `authorization: Bearer <POTENSI_API_KEY>` **dan** tetap `CF-Access-Client-Id/Secret` selama Access masih menjaga host.
+- **403 `region_not_allowed`** (NOPOL ada, tetapi di luar wilayah kunci) → kode baru `VEHICLE_REGION_NOT_ALLOWED` (HTTP 422, "Kendaraan terdaftar di luar wilayah yang diizinkan untuk sumber data Potensi NTT."). 403 lain (HTML Access, kode lain) tetap `UPSTREAM_FORBIDDEN`. Status 422 dipilih supaya klien tidak memperlakukannya seperti 403 akses ditolak.
+- **Guard CI** (`scripts/ci-production.ts`): binding wajib **9** (tiga secret Potensi). Pengecualian satu kali: versi **aktif** boleh masih baseline 8 binding (dua secret Access, tanpa kunci). Settings dan kandidat wajib memuat `POTENSI_API_KEY`; bila belum, guard berhenti sebelum upload dengan pesan "Secret POTENSI_API_KEY belum dipasang; jalankan wrangler versions secret put POTENSI_API_KEY sebelum deploy."
+
+Gate lokal 2026-10-23: typecheck lulus; lint 0 error / 9 warning (baseline); `npm test` 39 file / 1646 test lulus (10 baru); uji mutasi 4/4 tertangkap (format kunci, header Bearer, deteksi wilayah, batas transisi guard).
+
+Langkah operator (masing-masing perlu izin eksplisit, urutan wajib):
+1. Buat kunci "Razia Samsat" di website potensi-tarik. Mapper Razia **mewajibkan** blok `owner`, `registration`, `tax`, dan `potensi`, jadi centang **Pemilik, Registrasi, Pajak** (Kendaraan selalu ada; NJKB tidak perlu). Wilayah: semua UPT atau pilihan pemilik.
+2. `wrangler versions secret put POTENSI_API_KEY` (staging tanpa aktivasi, seperti secret Potensi sebelumnya).
+3. Commit dan push ke `main` → Workers Builds menjalankan guard dan deploy.
+4. Cari satu NOPOL dengan sumber Potensi NTT, lalu pastikan kolom "Terakhir dipakai" kunci "Razia Samsat" di website terisi.
+5. Setelah itu Fase 5 boleh dijalankan; kemudian ganti guard agar dua secret Access tidak lagi wajib (review terpisah).
+
 ## Hasil Implementasi Lokal — 2026-10-20
 
 Status: **LOKAL SELESAI, GATE PASS, REVIEW INDEPENDEN PASS WITH NOTES (notes ditindaklanjuti)**. Di-commit ke `main` lokal atas instruksi eksplisit user (2026-10-20); belum push. Perubahan operator `.gitignore` tidak ikut di-commit. Semua metadata live tetap **NOT VERIFIED**.
@@ -62,8 +81,9 @@ Hasil: tidak ada blocker/major. Temuan minor yang sudah ditindaklanjuti: DELETE 
 - Putaran 2 Potensi NTT dihentikan: setting dipindah ke `POTENSI_NTT` (versi 2), dua pencarian dan satu request diagnosis menghasilkan 502 `UPSTREAM_FORBIDDEN` (Potensi/Access menolak kredensial Razia). Setting dikembalikan ke `BPAD` (versi 3) dalam ±1 menit. Token `razia-samsat-production` tetap "Not Seen Yet" sesudahnya, sedangkan token kalkulator terlihat 13:30 WITA (setelah deploy `api-potensi-ntt`).
 - Uji langsung operator dari terminal (Client ID dan secret diketik operator, NOPOL sengaja tidak valid, tanpa lewat Worker Razia): halaman "Error ・ Cloudflare Access" **401 Unauthorized** dengan App AUD `927c4e26…` (aplikasi yang benar). Kesimpulan: Access menolak token Razia sebelum mencapai `api-potensi-ntt`; masalah ada pada pasangan token↔Access (policy belum terpasang/tidak memuat token, atau secret yang dipegang operator tidak cocok), bukan pada penyimpanan secret di Worker Razia atau grant Potensi. Token kalkulator masih diterima Access. Penyebab terverifikasi di dashboard (read-only oleh Claude): reusable policy "Razia SAMSAT - Service Auth" (`e5b2e22c-cec1-4bd3-a427-8202b579eadc`, Service Auth, Include Service Token `razia-samsat-production`) sudah benar isinya tetapi **dipakai 0 aplikasi**; aplikasi "NJKB API - Private Vehicle Service Auth" hanya memuat policy Canary dan Kalkulator Pajak. Perbaikan **dilakukan Claude atas izin eksplisit user (hanya perubahan ini)**: sebelum Save diverifikasi destinasi utuh (`api` / `uptdpenda-kupang.web.id` / `api/v1/vehicle/*`) dan nama aplikasi tidak berubah; policy Razia ditambahkan di urutan 3 setelah Canary dan Kalkulator; Save berhasil. Sesudahnya daftar reusable policy menunjukkan "Razia SAMSAT - Service Auth" dipakai 1 aplikasi; policy lain tidak berubah. Uji terminal ulang oleh operator masih diperlukan (target HTTP 400 `invalid_nopol`).
 
-### Revisi UI scanner 2026-10-20 (lokal, belum commit)
+### Revisi UI scanner 2026-10-20 — DIRILIS
 
+- Commit `a3dd33d` di-push atas instruksi user; deployment `0017615f-5fe4-46c5-9a3b-e8bacdca416e` (06:39 UTC) mengaktifkan versi `f33d0860-5262-40d6-9622-d17706eb8180` dengan delapan binding; guard PASS; smoke test non-mutasi lulus; aset produksi memuat aturan gap (digabung minifier menjadi `:is(...)`) dan teks bantuan baru; sumber data tetap `BPAD` versi 7.
 - Gap atas Scanner dihapus: aturan unlayered `.operational-layout:has(> main > section > .scanner-search) { padding-top: 0; }`; header sticky menempel di 0 px pada posisi awal dan saat scroll, diverifikasi di UAT lokal pada lebar 446 px dan 768 px (sebelumnya 12 px / 32 px). Spanduk "Mode pengembangan" 35 px hanya ada di build development. Halaman lain (header kartu non-sticky) tidak diubah.
 - Pencarian otomatis NOPOL 8 karakter (lihat keputusan nomor 4). Diverifikasi di UAT lokal dengan ketikan nyata: 7 karakter tidak memicu request; karakter ke-8 memicu tepat satu request, fokus pindah ke body, kartu hasil tampil.
 - Test: 4 test lama disesuaikan ke perilaku baru, 13 test baru (auto-search, normalisasi, nilai tidak valid, duplikat, tanpa sesi razia, pelat 9 karakter, gap CSS). Gate: typecheck PASS, lint 0 error / 9 warning baseline, 39 file / 1636 test PASS, build production PASS.
