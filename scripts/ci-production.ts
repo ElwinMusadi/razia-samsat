@@ -242,23 +242,25 @@ function noFallback(deps: CiDeps): void {
 }
 /** Exact runtime vars; any other value needs a separate review, never a CI change. */
 const EXPECTED_VARS: Record<string, string> = { PASSWORD_PBKDF2_ITERATIONS: '10', SESSION_TTL_SECONDS: '43200', RETENTION_POLICY: 'UNSET' };
-/** Cloudflare Access service-token secrets for Potensi NTT (needed until Access is removed from the Potensi host). */
+/**
+ * Old Cloudflare Access service-token secrets for Potensi NTT. The Worker no longer reads them (Access left the Potensi
+ * host on 2026-10-24); they are tolerated only as a complete pair until the operator deletes both.
+ */
 export const POTENSI_ACCESS_SECRET_BINDINGS = ['POTENSI_ACCESS_CLIENT_ID', 'POTENSI_ACCESS_CLIENT_SECRET'] as const;
 /** Data Potensi API key (`ptn_…`) managed in the potensi-tarik website; sent as `Authorization: Bearer`. */
 export const POTENSI_API_KEY_BINDING = 'POTENSI_API_KEY';
-/** All Worker runtime secrets for the Potensi NTT provider. All three or none; never a subset. */
+/** Every secret name the guard recognizes for the Potensi NTT provider. */
 export const POTENSI_SECRET_BINDINGS = [...POTENSI_ACCESS_SECRET_BINDINGS, POTENSI_API_KEY_BINDING] as const;
-/** Three resources, three runtime vars and the three Potensi secrets. */
-const EXPECTED_BINDING_COUNT = 9;
-/** Release 874813b baseline: both Access secrets, no API key. Accepted only as the *active* version, for the one deploy that introduces the key. */
-const ACTIVE_TRANSITION_BINDING_COUNT = 8;
+/** Three resources, three runtime vars and POTENSI_API_KEY. */
+const EXPECTED_BINDING_COUNT = 7;
+/** The same seven plus the old Access pair, as deployed by release 5e75041, until the operator deletes both. */
+const WITH_ACCESS_PAIR_BINDING_COUNT = 9;
 /**
  * `active`   = bindings of the currently deployed version (from `versions view <active id>`).
  * `settings` = script settings metadata; may describe a staged version, so it is checked separately.
- * `candidate` = the uploaded version; it is never activated without both secrets.
- * Every phase requires exactly nine bindings (three Potensi secrets). The only exception is an *active* version that still
- * carries the eight-binding baseline (both Access secrets, no API key): the deploy that introduces POTENSI_API_KEY replaces it.
- * Settings and the candidate always need the key, so the operator stages it with `wrangler versions secret put` first.
+ * `candidate` = the uploaded version; it is never activated without the API key.
+ * Every phase requires POTENSI_API_KEY and the old Access secrets either both present (nine bindings) or both absent
+ * (seven). A single Access secret is partial and needs operator review, so the operator deletes the pair together.
  */
 export type BindingPhase = 'active' | 'settings' | 'candidate';
 export function verifyBindings(b: unknown, compatDate: unknown, t: ProductionTarget, phase: BindingPhase): void {
@@ -281,15 +283,14 @@ export function verifyBindings(b: unknown, compatDate: unknown, t: ProductionTar
     else fail('CI tidak diizinkan mengubah resources/secrets/bindings.');
   }
   for (const name of [...Object.keys(resources), ...Object.keys(EXPECTED_VARS)]) if (!names.includes(name)) fail(Object.hasOwn(EXPECTED_VARS, name) ? 'Variables runtime berbeda; review terpisah diperlukan.' : 'CI tidak diizinkan mengubah resources/secrets/bindings.');
-  const secrets = POTENSI_SECRET_BINDINGS.filter(name => names.includes(name)).length;
-  const accessOnly = POTENSI_ACCESS_SECRET_BINDINGS.every(name => names.includes(name)) && !names.includes(POTENSI_API_KEY_BINDING);
-  const activeTransition = phase === 'active' && accessOnly;
-  if (secrets !== POTENSI_SECRET_BINDINGS.length && !activeTransition) {
-    if (phase === 'candidate') fail('Kandidat upload wajib memuat tepat tiga secret Potensi (termasuk POTENSI_API_KEY); aktivasi dibatalkan.');
-    if (accessOnly) fail('Secret POTENSI_API_KEY belum dipasang; jalankan wrangler versions secret put POTENSI_API_KEY sebelum deploy.');
-    fail(secrets === 0 ? 'Baseline produksi wajib memuat tepat tiga secret Potensi; secret hilang, review operator diperlukan.' : 'Secret Potensi parsial; review operator diperlukan.');
+  const access = POTENSI_ACCESS_SECRET_BINDINGS.filter(name => names.includes(name)).length;
+  if (!names.includes(POTENSI_API_KEY_BINDING)) {
+    if (phase === 'candidate') fail('Kandidat upload wajib memuat secret POTENSI_API_KEY; aktivasi dibatalkan.');
+    if (access === POTENSI_ACCESS_SECRET_BINDINGS.length) fail('Secret POTENSI_API_KEY belum dipasang; jalankan wrangler versions secret put POTENSI_API_KEY sebelum deploy.');
+    fail(access === 0 ? 'Baseline produksi wajib memuat secret POTENSI_API_KEY; secret hilang, review operator diperlukan.' : 'Secret Potensi parsial; review operator diperlukan.');
   }
-  if (bindings.length !== (activeTransition ? ACTIVE_TRANSITION_BINDING_COUNT : EXPECTED_BINDING_COUNT)) fail('CI tidak diizinkan mengubah resources/secrets/bindings.');
+  if (access !== 0 && access !== POTENSI_ACCESS_SECRET_BINDINGS.length) fail('Secret Potensi parsial; review operator diperlukan.');
+  if (bindings.length !== (access === 0 ? EXPECTED_BINDING_COUNT : WITH_ACCESS_PAIR_BINDING_COUNT)) fail('CI tidak diizinkan mengubah resources/secrets/bindings.');
 }
 type Active = {id:string;version:string};
 async function platform(deps: CiDeps,t:ProductionTarget,phase:PlatformPhase):Promise<Active> {

@@ -75,9 +75,12 @@ describe('ci-production', () => {
     { name: 'POTENSI_ACCESS_CLIENT_SECRET', type: 'secret_text' },
     { name: 'POTENSI_API_KEY', type: 'secret_text' },
   ];
-  /** Release 874813b baseline: both Access secrets, no API key (eight bindings). */
+  /** Release 874813b baseline: both Access secrets, no API key (eight bindings); no longer accepted. */
   const accessOnlyBindings = () => [...baseBindings(), ...secretBindings().slice(0, 2)];
+  /** Release 5e75041 (live until the operator deletes the Access pair): nine bindings. */
   const candidateBindings = () => [...baseBindings(), ...secretBindings()];
+  /** Target after the Access pair is deleted: the API key only (seven bindings). */
+  const keyOnlyBindings = () => [...baseBindings(), secretBindings()[2]];
 
   beforeEach(() => {
     tempRoot = mkdtempSync(join(tmpdir(), 'razia-ci-test-'));
@@ -1569,19 +1572,46 @@ describe('ci-production', () => {
 
     describe('Potensi secret bindings', () => {
       const noActivation = () => expect(deps.runWrangler).not.toHaveBeenCalledWith(expect.arrayContaining(['deploy', `${NEW_VERSION_ID}@100%`]));
-      it('activates only when the active baseline, settings and candidate all carry exactly nine bindings', async () => {
+      it('activates when the active baseline, settings and candidate all carry nine bindings (old Access pair still attached)', async () => {
         await expect(ciDeploy(deps)).resolves.toBe(NEW_VERSION_ID);
         expect(deps.runWrangler).toHaveBeenCalledWith(['versions', 'view', ACTIVE_VERSION_ID, '--name', EXPECTED_WORKER, '--json']);
       });
+      const candidateIs = (bindings: unknown[]) => {
+        const originalRunWrangler = deps.runWrangler;
+        deps.runWrangler = vi.fn().mockImplementation(async (args: string[]) => {
+          if (args.join(' ') === `versions view ${NEW_VERSION_ID} --name ${EXPECTED_WORKER} --json`) return createViewResult(bindings);
+          return originalRunWrangler(args);
+        });
+      };
+      it('activates when all three carry seven bindings (Access pair deleted, API key only)', async () => {
+        withActive(keyOnlyBindings()); withSettings(keyOnlyBindings()); candidateIs(keyOnlyBindings());
+        await expect(ciDeploy(deps)).resolves.toBe(NEW_VERSION_ID);
+      });
+      it('activates while the operator deletes the Access pair: nine active, seven settings and candidate', async () => {
+        withSettings(keyOnlyBindings()); candidateIs(keyOnlyBindings());
+        await expect(ciDeploy(deps)).resolves.toBe(NEW_VERSION_ID);
+      });
+      it('activates a nine-binding candidate on a seven-binding active version (either order is safe)', async () => {
+        withActive(keyOnlyBindings());
+        await expect(ciDeploy(deps)).resolves.toBe(NEW_VERSION_ID);
+      });
+      it.each([
+        ['key and client id', () => [...baseBindings(), secretBindings()[0], secretBindings()[2]]],
+        ['key and client secret', () => [...baseBindings(), secretBindings()[1], secretBindings()[2]]],
+      ])('refuses to activate a candidate with %s only: the Access pair goes together', async (_name, bindings) => {
+        candidateIs(bindings());
+        await expect(ciDeploy(deps)).rejects.toThrow('Secret Potensi parsial; review operator diperlukan.');
+        noActivation();
+      });
       it('rejects a six-binding active baseline (secrets lost) before upload; the transition baseline is closed', async () => {
         withActive(baseBindings());
-        await expect(ciDeploy(deps)).rejects.toThrow('Baseline produksi wajib memuat tepat tiga secret Potensi; secret hilang, review operator diperlukan.');
+        await expect(ciDeploy(deps)).rejects.toThrow('Baseline produksi wajib memuat secret POTENSI_API_KEY; secret hilang, review operator diperlukan.');
         expect(deps.runWrangler).not.toHaveBeenCalledWith(expect.arrayContaining(['upload']));
         noActivation();
       });
       it('rejects six-binding settings metadata before upload even when the active version carries nine', async () => {
         withSettings(baseBindings());
-        await expect(ciDeploy(deps)).rejects.toThrow('Baseline produksi wajib memuat tepat tiga secret Potensi; secret hilang, review operator diperlukan.');
+        await expect(ciDeploy(deps)).rejects.toThrow('Baseline produksi wajib memuat secret POTENSI_API_KEY; secret hilang, review operator diperlukan.');
         expect(deps.runWrangler).not.toHaveBeenCalledWith(expect.arrayContaining(['upload']));
         noActivation();
       });
@@ -1591,7 +1621,7 @@ describe('ci-production', () => {
           if (phase === 'post_upload' && path === `/accounts/${t.account}/workers/scripts/${t.worker}/settings`) return { success: true, result: { compatibility_date: '2026-10-07', bindings: baseBindings() } };
           return original(t, path, phase);
         });
-        await expect(ciDeploy(deps)).rejects.toThrow('Baseline produksi wajib memuat tepat tiga secret Potensi');
+        await expect(ciDeploy(deps)).rejects.toThrow('Baseline produksi wajib memuat secret POTENSI_API_KEY');
         expect(deps.runWrangler).toHaveBeenCalledWith(expect.arrayContaining(['upload']));
         noActivation();
       });
@@ -1605,7 +1635,7 @@ describe('ci-production', () => {
           if (args.join(' ') === `versions view ${NEW_VERSION_ID} --name ${EXPECTED_WORKER} --json`) return createViewResult(bindings());
           return originalRunWrangler(args);
         });
-        await expect(ciDeploy(deps)).rejects.toThrow(/Kandidat upload wajib memuat tepat tiga secret Potensi/);
+        await expect(ciDeploy(deps)).rejects.toThrow(/Kandidat upload wajib memuat secret POTENSI_API_KEY/);
         noActivation();
       });
       it.each([
@@ -1626,9 +1656,11 @@ describe('ci-production', () => {
         await expect(ciDeploy(deps)).rejects.toThrow(message);
         noActivation();
       });
-      it('accepts the eight-binding active baseline (Access secrets, no key) once, when settings and candidate carry the key', async () => {
+      it('rejects the old eight-binding active baseline (Access secrets, no key) before upload; that transition is closed', async () => {
         withActive(accessOnlyBindings());
-        await expect(ciDeploy(deps)).resolves.toBe(NEW_VERSION_ID);
+        await expect(ciDeploy(deps)).rejects.toThrow('Secret POTENSI_API_KEY belum dipasang; jalankan wrangler versions secret put POTENSI_API_KEY sebelum deploy.');
+        expect(deps.runWrangler).not.toHaveBeenCalledWith(expect.arrayContaining(['upload']));
+        noActivation();
       });
       it('rejects settings without POTENSI_API_KEY before upload, naming the operator step', async () => {
         withSettings(accessOnlyBindings());
@@ -1642,7 +1674,7 @@ describe('ci-production', () => {
           if (args.join(' ') === `versions view ${NEW_VERSION_ID} --name ${EXPECTED_WORKER} --json`) return createViewResult(accessOnlyBindings());
           return originalRunWrangler(args);
         });
-        await expect(ciDeploy(deps)).rejects.toThrow(/Kandidat upload wajib memuat tepat tiga secret Potensi/);
+        await expect(ciDeploy(deps)).rejects.toThrow(/Kandidat upload wajib memuat secret POTENSI_API_KEY/);
         noActivation();
       });
       it('rejects an active baseline with the key but a missing Access secret as partial', async () => {
@@ -1680,7 +1712,7 @@ describe('ci-production', () => {
           if (args.join(' ') === `versions view ${NEW_VERSION_ID} --name ${EXPECTED_WORKER} --json`) return createViewResult(baseBindings());
           return originalRunWrangler(args);
         });
-        await expect(ciDeploy(deps)).rejects.toThrow(/Kandidat upload wajib memuat tepat tiga secret Potensi/);
+        await expect(ciDeploy(deps)).rejects.toThrow(/Kandidat upload wajib memuat secret POTENSI_API_KEY/);
       });
     });
 

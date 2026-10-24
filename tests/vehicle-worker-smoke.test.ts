@@ -90,8 +90,9 @@ it('production bundle: BPAD default, every lookup upstream, zero KV, one history
   const potensi = await post({ nopol: 'DH1234ZZ' }); expect(potensi.status).toBe(200);
   const request = outboundRequests.at(-1)!;
   expect(request).toMatchObject({ url: 'https://api.uptdpenda-kupang.web.id/api/v1/vehicle/DH1234ZZ', method: 'GET', body: '' });
-  expect(request.headers['cf-access-client-id']).toBe('synthetic-client-id.access');
-  expect(request.headers['cf-access-client-secret']).toBe('synthetic-client-secret-value');
+  // The old Access secrets are still bound here (as in production until deleted) but never sent.
+  expect(request.headers['cf-access-client-id']).toBeUndefined();
+  expect(request.headers['cf-access-client-secret']).toBeUndefined();
   expect(request.headers.authorization).toBe('Bearer ptn_Ab12Cd34_AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA');
   const snapshotBody = await potensi.json() as Record<string, unknown>;
   expect(snapshotBody).toMatchObject({ outcome: 'FOUND', source: 'LIVE', provider: 'POTENSI_NTT', snapshot_synced_at: '2026-10-18T00:00:00.000Z', vehicle: { owner_name: 'Owner Snapshot', brand: 'Brand Snapshot', type: null, color: 'Color Snapshot', tax_due_date: '2024-01-06', stnk_due_date: '2026-01-06', tax_status: 'EXPIRED', stnk_status: 'EXPIRED' } });

@@ -9,7 +9,7 @@ Ringkasan kerja untuk agen. Sumber kebenaran produk: `docs/AI Product Blueprint 
 - Data: D1 `razia-samsat-db` (migrasi `migrations/0001`–`0005`). KV `VEHICLE_CACHE` tetap terpasang tetapi **tidak dipakai**.
 - Sumber data kendaraan dipilih global oleh ADMIN (tabel `vehicle_source_settings`, default `BPAD`):
   - **BPAD** — API publik BPAD, data live (`worker/vehicle/bpad.ts`).
-  - **Potensi NTT** — `https://api.uptdpenda-kupang.web.id/api/v1/vehicle/{nopol}` (Worker `api-potensi-ntt`, snapshot BPAD) di belakang Cloudflare Access; header `Authorization: Bearer` dari secret `POTENSI_API_KEY` (kunci `ptn_…` dari website potensi-tarik) **plus** `CF-Access-Client-Id/Secret` dari `POTENSI_ACCESS_CLIENT_ID` / `POTENSI_ACCESS_CLIENT_SECRET` selama Access masih aktif (`worker/vehicle/potensi.ts`). 403 `region_not_allowed` → `VEHICLE_REGION_NOT_ALLOWED` (422).
+  - **Potensi NTT** — `https://api.uptdpenda-kupang.web.id/api/v1/vehicle/{nopol}` (Worker `api-potensi-ntt`, snapshot BPAD), tanpa Cloudflare Access sejak 2026-10-24; hanya header `Authorization: Bearer` dari secret `POTENSI_API_KEY` (kunci "Razia Samsat" `ptn_…` dari website potensi-tarik) (`worker/vehicle/potensi.ts`). Secret lama `POTENSI_ACCESS_CLIENT_ID` / `POTENSI_ACCESS_CLIENT_SECRET` tidak dibaca lagi. 403 `region_not_allowed` → `VEHICLE_REGION_NOT_ALLOWED` (422).
 - Entry development `worker/dev-index.ts` mensimulasikan kedua provider (zero outbound), hanya untuk localhost.
 
 ## Stack dan versi
@@ -51,7 +51,7 @@ Deploy produksi terjadi otomatis lewat Workers Builds saat push ke `main` (`npm 
 - **Migrasi** forward-only; jangan edit migrasi lama. Test memakai D1 nyata via Miniflare dan file migrasi asli.
 - **Scanner:** NOPOL valid tepat 8 karakter langsung dicari dan input di-blur (keputusan user 2026-10-20); yang lebih pendek tetap Enter. Duplikat dicegah hanya selama loading. Pelat 9 karakter ikut terpicu di karakter ke-8.
 - **UI:** Glassmorphism, notch sesi Scanner, footer di atas navigasi bawah dipertahankan. Navigasi bawah tetap lima tujuan; Pengaturan sumber data diakses dari halaman Admin (`/admin/settings`). Header Scanner sticky tanpa jarak atas. Teks UI berbahasa Indonesia.
-- **Guard CI** (`scripts/ci-production.ts`): nama/tipe/ID resource/nilai var binding diperiksa persis; settings dan kandidat upload wajib tepat 9 binding (tiga `secret_text` Potensi: dua Access + `POTENSI_API_KEY`); versi aktif boleh masih baseline 8 binding (tanpa kunci) hanya untuk deploy yang memperkenalkan kunci. Tanpa flag bypass.
+- **Guard CI** (`scripts/ci-production.ts`): nama/tipe/ID resource/nilai var binding diperiksa persis; aktif, settings, dan kandidat upload wajib memuat `POTENSI_API_KEY`, dengan dua secret Access lama **lengkap berpasangan atau tidak ada sama sekali**: tepat 9 binding (pasangan masih terpasang) atau 7 (sudah dihapus). Satu secret Access saja = parsial, ditolak. Baseline lama 8 binding (Access tanpa kunci) tidak diterima lagi. Tanpa flag bypass.
 
 ## Masalah yang sudah diselesaikan
 
@@ -59,7 +59,7 @@ Deploy produksi terjadi otomatis lewat Workers Builds saat push ke `main` (`npm 
 - Secret Potensi di-stage dengan `wrangler versions secret put` tanpa aktivasi dan terbukti terwariskan ke upload CI.
 - Grant `razia-samsat` (scope `vehicle:read owner:read registration:read tax:read`) ditambahkan dan di-deploy di `api-potensi-ntt`.
 - Potensi ditolak Access (401 Unauthorized): reusable policy "Razia SAMSAT - Service Auth" belum dipasang ke aplikasi Access "NJKB API - Private Vehicle Service Auth". Diperbaiki dengan menambahkannya ke aplikasi itu.
-- Guard CI diperketat menjadi wajib 8 binding (`8a79991`).
+- Guard CI diperketat menjadi wajib 8 binding (`8a79991`), lalu 9 dengan kunci API (`5e75041`), lalu 9 atau 7 setelah Access dilepas (2026-10-24).
 - Gap atas Scanner dihapus dan pencarian otomatis 8 karakter dirilis (`a3dd33d`).
 - Dry-run/deploy `api-potensi-ntt` butuh `NODE_OPTIONS=--max-old-space-size=6144` (Wrangler kehabisan memori tanpa itu).
 - Halaman Access dashboard sering macet saat insiden Zero Trust; dashboard Workers tetap bisa dipakai untuk verifikasi.

@@ -15,7 +15,24 @@ Aplikasi Razia Kendaraan SAMSAT Kota Kupang. Blueprint di `docs/AI Product Bluep
 - Pekerjaan dilakukan di branch `main` sesuai kesepakatan user, tetapi tidak ada izin otomatis untuk stage/commit/push. Push `main` dapat memicu Workers Builds dan deployment.
 - Pembaruan 2026-10-19 hanya dokumentasi. Pembaruan 2026-10-20 menambah perubahan runtime, schema (migrasi baru `0005`), test, UI, dan guard CI secara **lokal saja**. Tidak ada secret, migrasi remote, deployment, atau operasi Cloudflare.
 
-## Kunci API Data Potensi — Implementasi Lokal 2026-10-23 (BELUM COMMIT, BELUM DEPLOY)
+## Tanpa Cloudflare Access — Implementasi Lokal 2026-10-24 (BELUM COMMIT, BELUM DEPLOY)
+
+Konteks: Fase 5 rencana kunci API selesai 2026-10-24. Aplikasi Access untuk `api.uptdpenda-kupang.web.id/api/v1/vehicle/*` dihapus, dan `api-potensi-ntt` hanya menerima kunci API (header CF saja = 401). Kunci "Razia Samsat" sudah terbukti dipakai (2026-10-23 21.16 UTC).
+
+Perubahan:
+- **Adapter Potensi** (`worker/vehicle/potensi.ts`) hanya mengirim `accept` dan `authorization: Bearer <POTENSI_API_KEY>`; header `CF-Access-Client-*` dibuang.
+- **`readPotensiCredentials`** hanya mewajibkan `POTENSI_API_KEY` berformat `ptn_…`. Secret Access lama diabaikan, ada atau tidak. `worker/env.d.ts` hanya mengenal `POTENSI_API_KEY`.
+- **Guard CI**: `POTENSI_API_KEY` wajib di versi aktif, settings, dan kandidat; dua secret Access lama boleh **lengkap berpasangan (9 binding) atau tidak ada (7 binding)**, satu saja ditolak sebagai parsial. Transisi lama "aktif 8 binding tanpa kunci" ditutup. Kedua urutan aman: deploy kode ini dulu lalu hapus secret, atau sebaliknya.
+
+Gate lokal 2026-10-24: typecheck lulus; lint 0 error (warning baseline); `npx vitest run` 39 file / 1650 test lulus; build lulus; uji mutasi 9/9 tertangkap (header Access dikirim lagi, format kunci tidak dicek, kunci tidak dikirim, pasangan Access parsial diterima, jumlah 7/9 tertukar, 7 binding ditolak, transisi aktif tanpa kunci dibuka lagi, pesan langkah operator, pesan kandidat).
+
+Langkah operator (masing-masing perlu izin eksplisit):
+1. Commit dan push ke `main` → Workers Builds menjalankan guard (versi aktif masih 9 binding, diterima) dan deploy.
+2. Cari satu NOPOL dengan sumber Potensi NTT; harus tetap berhasil.
+3. Hapus dua secret Worker lama: `npx wrangler versions secret delete POTENSI_ACCESS_CLIENT_ID --name razia-samsat` dan `npx wrangler versions secret delete POTENSI_ACCESS_CLIENT_SECRET --name razia-samsat`, lalu aktifkan versi hasilnya (`npx wrangler versions deploy`) atau biarkan push berikutnya membawanya. Hapus keduanya dalam satu sesi: selama baru satu yang terhapus, guard menolak deploy CI sebagai parsial.
+4. Hapus service token `razia-samsat-production` di Cloudflare Zero Trust.
+
+## Kunci API Data Potensi — 2026-10-23 (commit `5e75041`, tayang, kunci terbukti dipakai)
 
 Konteks: `api-potensi-ntt` kini menerima kunci API `ptn_…` (`Authorization: Bearer`) yang dikelola di website potensi-tarik (https://potensi.uptdpenda-kupang.web.id/#kunci). Kalkulator pajak dan PINTU sudah pindah. Razia adalah konsumen terakhir yang masih hanya memakai service token Access; Fase 5 (melepas Access dari host Potensi dan jalur service token lama) menunggu Razia. Rencana: `D:\Herd\potensi-tarik\docs\RENCANA-KUNCI-API.md`.
 
@@ -32,7 +49,7 @@ Langkah operator (masing-masing perlu izin eksplisit, urutan wajib):
 2. `wrangler versions secret put POTENSI_API_KEY` (staging tanpa aktivasi, seperti secret Potensi sebelumnya).
 3. Commit dan push ke `main` → Workers Builds menjalankan guard dan deploy.
 4. Cari satu NOPOL dengan sumber Potensi NTT, lalu pastikan kolom "Terakhir dipakai" kunci "Razia Samsat" di website terisi.
-5. Setelah itu Fase 5 boleh dijalankan; kemudian ganti guard agar dua secret Access tidak lagi wajib (review terpisah).
+5. Setelah itu Fase 5 boleh dijalankan; kemudian ganti guard agar dua secret Access tidak lagi wajib (review terpisah). **Selesai 2026-10-24**, lihat bagian "Tanpa Cloudflare Access" di atas.
 
 ## Hasil Implementasi Lokal — 2026-10-20
 

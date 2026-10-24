@@ -124,11 +124,11 @@ describe('admin vehicle-source API', () => {
     const response = await request('/api/admin/vehicle-source'); expect(response.status).toBe(200);
     expect(response.headers.get('cache-control')).toBe('no-store');
     expect(await response.json()).toEqual({ setting: { provider: 'BPAD', version: 1, updated_at: expect.any(Number), updated_by: null }, potensi_credentials_configured: false });
-    env.POTENSI_ACCESS_CLIENT_ID = 'synthetic-id'; env.POTENSI_ACCESS_CLIENT_SECRET = 'synthetic-secret-value'; env.POTENSI_API_KEY = 'ptn_Ab12Cd34_AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA';
+    env.POTENSI_API_KEY = 'ptn_Ab12Cd34_AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA';
     const configured = await request('/api/admin/vehicle-source');
     const body = await configured.text();
     expect(JSON.parse(body)).toMatchObject({ potensi_credentials_configured: true });
-    expect(body).not.toMatch(/synthetic-id|synthetic-secret/);
+    expect(body).not.toContain('ptn_');
   });
   it.each([['officer', 403, 'AUTHORIZATION_ERROR'], ['none', 401, 'AUTHENTICATION_ERROR']])('%s is rejected on GET and PUT without touching the setting', async (who, status, code) => {
     await error(await request('/api/admin/vehicle-source', { who }), status, code);
@@ -148,15 +148,15 @@ describe('admin vehicle-source API', () => {
   });
   it('refuses Potensi while credentials are absent and keeps BPAD', async () => {
     await error(await put({ provider: 'POTENSI_NTT', expected_version: 1 }), 422, 'VEHICLE_SOURCE_CREDENTIALS_MISSING');
-    env.POTENSI_ACCESS_CLIENT_ID = 'only-id';
+    // Leftover Access secrets are no credential at all, and a malformed key is still absent.
+    Object.assign(env, { POTENSI_ACCESS_CLIENT_ID: 'synthetic-id', POTENSI_ACCESS_CLIENT_SECRET: 'synthetic-secret-value' });
     await error(await put({ provider: 'POTENSI_NTT', expected_version: 1 }), 422, 'VEHICLE_SOURCE_CREDENTIALS_MISSING');
-    // Both Access secrets without the Data Potensi API key are still incomplete.
-    env.POTENSI_ACCESS_CLIENT_SECRET = 'synthetic-secret-value';
+    env.POTENSI_API_KEY = 'ptn_short';
     await error(await put({ provider: 'POTENSI_NTT', expected_version: 1 }), 422, 'VEHICLE_SOURCE_CREDENTIALS_MISSING');
     expect(await current()).toEqual([{ version: 1, provider: 'BPAD', updated_by: null }]);
   });
   it('switches with CAS, records actor atomically, logs a safe event and is idempotent for the same provider', async () => {
-    env.POTENSI_ACCESS_CLIENT_ID = 'synthetic-id'; env.POTENSI_ACCESS_CLIENT_SECRET = 'synthetic-secret-value'; env.POTENSI_API_KEY = 'ptn_Ab12Cd34_AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA';
+    env.POTENSI_API_KEY = 'ptn_Ab12Cd34_AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA';
     const response = await put({ provider: 'POTENSI_NTT', expected_version: 1 }); expect(response.status).toBe(200);
     expect(await response.json()).toEqual({ setting: { provider: 'POTENSI_NTT', version: 2, updated_at: expect.any(Number), updated_by: { id: ADMIN, username: 'synthetic.admin' } }, potensi_credentials_configured: true });
     expect(await current()).toEqual([{ version: 2, provider: 'POTENSI_NTT', updated_by: ADMIN }, { version: 1, provider: 'BPAD', updated_by: null }]);
@@ -168,7 +168,7 @@ describe('admin vehicle-source API', () => {
     expect(await back.json()).toMatchObject({ setting: { provider: 'BPAD', version: 3, updated_by: { id: OTHER_ADMIN, username: 'synthetic.other' } } });
   });
   it('two admins racing from the same version: one 200 and one 409 conflict, never an overwrite', async () => {
-    env.POTENSI_ACCESS_CLIENT_ID = 'synthetic-id'; env.POTENSI_ACCESS_CLIENT_SECRET = 'synthetic-secret-value'; env.POTENSI_API_KEY = 'ptn_Ab12Cd34_AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA';
+    env.POTENSI_API_KEY = 'ptn_Ab12Cd34_AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA';
     const first = await put({ provider: 'POTENSI_NTT', expected_version: 1 }); expect(first.status).toBe(200);
     await error(await put({ provider: 'BPAD', expected_version: 1 }, 'other'), 409, 'VEHICLE_SOURCE_CONFLICT');
     await error(await put({ provider: 'BPAD', expected_version: 1 }), 409, 'VEHICLE_SOURCE_CONFLICT');
@@ -182,7 +182,7 @@ describe('admin vehicle-source API', () => {
     expect(await current()).toHaveLength(2);
   });
   it('actor deactivated or revoked between preflight and write cannot record a change', async () => {
-    env.POTENSI_ACCESS_CLIENT_ID = 'synthetic-id'; env.POTENSI_ACCESS_CLIENT_SECRET = 'synthetic-secret-value'; env.POTENSI_API_KEY = 'ptn_Ab12Cd34_AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA';
+    env.POTENSI_API_KEY = 'ptn_Ab12Cd34_AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA';
     // Batch 1 is the preflight read; the actor is deactivated just before batch 2 (the guarded write).
     const real = db as unknown as D1Database; let batches = 0;
     env.DB = { prepare: (query: string) => real.prepare(query), batch: async (statements: D1PreparedStatement[]) => {
@@ -200,13 +200,13 @@ describe('admin vehicle-source API', () => {
     const real = db as unknown as D1Database;
     env.DB = { prepare(query: string) { return real.prepare(query.replaceAll('FROM vehicle_source_settings v', 'FROM (SELECT * FROM vehicle_source_settings WHERE 0) v')); }, batch: (statements: D1PreparedStatement[]) => real.batch(statements) } as unknown as D1Database;
     await error(await request('/api/admin/vehicle-source'), 503, 'VEHICLE_SOURCE_UNAVAILABLE');
-    env.POTENSI_ACCESS_CLIENT_ID = 'synthetic-id'; env.POTENSI_ACCESS_CLIENT_SECRET = 'synthetic-secret-value'; env.POTENSI_API_KEY = 'ptn_Ab12Cd34_AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA';
+    env.POTENSI_API_KEY = 'ptn_Ab12Cd34_AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA';
     await error(await put({ provider: 'POTENSI_NTT', expected_version: 1 }), 503, 'VEHICLE_SOURCE_UNAVAILABLE');
     env.DB = db;
     expect(await current()).toEqual([{ version: 1, provider: 'BPAD', updated_by: null }]);
   });
   it('the setting history is append-only: deleting the newest row cannot silently re-activate an older provider', async () => {
-    env.POTENSI_ACCESS_CLIENT_ID = 'synthetic-id'; env.POTENSI_ACCESS_CLIENT_SECRET = 'synthetic-secret-value'; env.POTENSI_API_KEY = 'ptn_Ab12Cd34_AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA';
+    env.POTENSI_API_KEY = 'ptn_Ab12Cd34_AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA';
     expect((await put({ provider: 'POTENSI_NTT', expected_version: 1 })).status).toBe(200);
     for (const query of ['DELETE FROM vehicle_source_settings WHERE version = 2', 'DELETE FROM vehicle_source_settings WHERE version = 1', 'DELETE FROM vehicle_source_settings']) {
       await expect(sql(query)).rejects.toThrow('Vehicle source history is append-only');
@@ -220,7 +220,7 @@ describe('admin vehicle-source API', () => {
 
 describe('global provider on lookups', () => {
   it('applies the new source to every user on the next lookup, and only the first snapshot per raid/plate is recorded with its provider', async () => {
-    env.POTENSI_ACCESS_CLIENT_ID = 'synthetic-id'; env.POTENSI_ACCESS_CLIENT_SECRET = 'synthetic-secret-value'; env.POTENSI_API_KEY = 'ptn_Ab12Cd34_AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA';
+    env.POTENSI_API_KEY = 'ptn_Ab12Cd34_AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA';
     expect(await (await lookup('officer')).json()).toMatchObject({ provider: 'BPAD', snapshot_synced_at: null, vehicle: { owner_name: 'Owner Live' } });
     expect((await put({ provider: 'POTENSI_NTT', expected_version: 1 })).status).toBe(200);
     for (const who of ['officer', 'second']) expect(await (await lookup(who)).json()).toMatchObject({ provider: 'POTENSI_NTT', source: 'LIVE', snapshot_synced_at: '2026-10-18T00:00:00.000Z', vehicle: { owner_name: null } });
@@ -230,7 +230,7 @@ describe('global provider on lookups', () => {
     expect(rows).toEqual([{ raid_session_id: 'raid-officer', provider: 'BPAD', source: 'LIVE' }, { raid_session_id: 'raid-second', provider: 'POTENSI_NTT', source: 'LIVE' }]);
   });
   it('an in-flight lookup finishes with the provider captured at its start', async () => {
-    env.POTENSI_ACCESS_CLIENT_ID = 'synthetic-id'; env.POTENSI_ACCESS_CLIENT_SECRET = 'synthetic-secret-value'; env.POTENSI_API_KEY = 'ptn_Ab12Cd34_AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA';
+    env.POTENSI_API_KEY = 'ptn_Ab12Cd34_AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA';
     const started = deferred<void>(); const release = deferred<void>();
     bpad.mockImplementation(async nopol => { started.resolve(); await release.promise; return found(nopol, 'BPAD'); });
     const pending = lookup('officer'); await started.promise;
