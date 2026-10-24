@@ -26,6 +26,10 @@ Perubahan:
 
 Gate lokal 2026-10-24: typecheck lulus; lint 0 error (warning baseline); `npx vitest run` 39 file / 1650 test lulus; build lulus; uji mutasi 9/9 tertangkap (header Access dikirim lagi, format kunci tidak dicek, kunci tidak dikirim, pasangan Access parsial diterima, jumlah 7/9 tertukar, 7 binding ditolak, transisi aktif tanpa kunci dibuka lagi, pesan langkah operator, pesan kandidat).
 
+Commit `7e63e39` di-push 2026-10-24, tetapi Workers Builds `#3a4744c3` gagal di **gate audit** (bukan lint/test/guard): advisori baru `undici` 7.0.0–7.30.0 (high, dibawa miniflare; wrangler terbaru pun masih membawa 7.29.1) dan `@vitest/mocker` ≤ 4.1.11 (moderate). Perbaikan lokal: override `miniflare.undici` = `7.30.1`, `vitest` ^4.1.12, `npm audit fix` untuk undici milik jsdom (8.12.3). Hasil: `npm audit` 0 kerentanan, lint 0 error, typecheck dan build lulus, 1650 test lulus. Versi aktif tetap `8aed51bd` (9 binding, kode lama yang masih membaca secret Access).
+
+**Peringatan:** operator sudah menghapus dua secret Access sebagai versi staged (`f32c5177`, `2aef4ba4`, 04.23 UTC). Versi itu berisi **kode lama** yang masih mewajibkan secret Access, jadi **jangan aktifkan `2aef4ba4` dengan `wrangler versions deploy`**: Potensi akan menjawab 503. Biarkan deploy CI berikutnya (kode baru + 7 binding) yang menggantikannya.
+
 Langkah operator (masing-masing perlu izin eksplisit):
 1. Commit dan push ke `main` → Workers Builds menjalankan guard (versi aktif masih 9 binding, diterima) dan deploy.
 2. Cari satu NOPOL dengan sumber Potensi NTT; harus tetap berhasil.
